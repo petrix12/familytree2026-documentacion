@@ -967,6 +967,139 @@ Esta fase implementa el registro de usuarios, el inicio de sesión y la emisión
         ```
 
 
+## 🔐 Endpoint de Verificación de Sesión (`/me`)
+Para completar la base de autenticación reutilizable (Starter Kit) y permitir que el cliente Frontend pueda consultar el perfil del usuario autenticado o verificar la validez de un token guardado al recargar la página, se agrega el endpoint `GET /api/v1/auth/me`.
+
+1. Actualizar el Controlador de Autenticación (`src/controllers/auth.controller.js`):
+    Añade la función `getMe` al archivo de controladores:
+    ```js
+    // 3. OBTENER USUARIO ACTUAL (VERIFICAR SESIÓN)
+    const getMe = async (req, res) => {
+        try {
+            const user = await prisma.user.findUnique({
+                where: { id: req.user.id },
+                select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    createdAt: true,
+                    roles: {
+                        select: {
+                            role: {
+                                select: { name: true },
+                            },
+                        },
+                    },
+                },
+            });
+
+            if (!user) {
+                return res.status(404).json({
+                    status: 'fail',
+                    message: 'Usuario no encontrado',
+                });
+            }
+
+            const userRoles = user.roles.map((ur) => ur.role.name);
+
+            return res.status(200).json({
+                status: 'success',
+                data: {
+                    user: {
+                        id: user.id,
+                        email: user.email,
+                        name: user.name,
+                        roles: userRoles,
+                        createdAt: user.createdAt,
+                    },
+                },
+            });
+        } catch (error) {
+            console.error('Error en getMe:', error);
+            return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+        }
+    };
+
+    // 4. CIERRE DE SESIÓN (LOGOUT)
+    const logout = async (req, res) => {
+    try {
+        // En arquitecturas stateless (JWT en Authorization Header), el servidor confirma
+        // el cierre de sesión para que el Frontend proceda a destruir el token almacenado.
+        return res.status(200).json({
+        status: 'success',
+        message: 'Sesión cerrada correctamente',
+        });
+    } catch (error) {
+        console.error('Error en logout:', error);
+        return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+    }
+    };
+
+    module.exports = { register, login, getMe, logout };
+    ```
+
+2. Proteger la Ruta en `src/routes/auth.routes.js`:
+    Abre `src/routes/auth.routes.js`, importa el middleware `authenticateJWT` y la función `getMe`, e integra la ruta protegida:
+    ```js
+    const express = require('express');
+    const { body } = require('express-validator');
+    const { register, login, getMe, logout } = require('../controllers/auth.controller');
+    const { authenticateJWT } = require('../middlewares/auth.middleware');
+    const validate = require('../middlewares/validate.middleware');
+
+    const router = express.Router();
+
+    // ... (validaciones de register y login) ...
+
+    router.post('/register', registerValidation, register);
+    router.post('/login', loginValidation, login);
+
+    // Endpoint protegido para verificar estado de sesión de usuario logueado
+    router.get('/me', authenticateJWT, getMe);
+    router.post('/logout', authenticateJWT, logout);
+
+    module.exports = router;
+    ```
+
+3. Verification en Cliente HTTP (Postman / Insomnia):
+    + 🧪 Prueba 3: Consultar Perfil con JWT
+        + Método: GET
+        + URL: http://localhost:4000/api/v1/auth/me
+        + Headers: 
+            + `Authorization`: `Bearer <TOKEN_OBTENIDO_EN_LOGIN>`
+        + Respuesta Esperada (200 OK):
+            ```json
+            {
+                "status": "success",
+                "data": {
+                    "user": {
+                        "id": "30c24045-757e-483e-8dc0-77f21feb4630",
+                        "email": "juan@example.com",
+                        "name": "Juan Pérez",
+                        "roles": [
+                            "USER"
+                        ],
+                        "createdAt": "2026-08-18T18:15:26.475Z"
+                    }
+                }
+            }
+            ```
+    + 🧪 Prueba 3: Logout
+        + Método: POST
+        + URL: http://localhost:4000/api/v1/auth/logout
+        + Headers: Authorization: Bearer <TU_TOKEN_JWT>
+        + Respuesta Esperada (200 OK):
+            ```json
+            {
+                "status": "success",
+                "message": "Sesión cerrada correctamente"
+            }
+            ```
+---
+
+## 🎨 Construcción del Cliente Frontend SPA (Vue 3 + Vite + Pinia)
+Con la API REST de Autenticación finalizada, procedemos a crear la aplicación Frontend en la carpeta `starter-frontend` que gestionará la experiencia del usuario (Login, Registro, Guarda de Rutas y Redirecciones "estilo Laravel").
+
 
 ## -------------------------
 
