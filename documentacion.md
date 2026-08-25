@@ -2478,35 +2478,150 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
         }
         ```
     + Y actualiza el beforeEach para validar el meta requiresRole:
-```js
-router.beforeEach(async (to) => {
-    const authStore = useAuthStore();
+        ```js
+        router.beforeEach(async (to) => {
+            const authStore = useAuthStore();
 
-    if (authStore.token && !authStore.user) {
-        await authStore.fetchUser();
-    }
+            if (authStore.token && !authStore.user) {
+                await authStore.fetchUser();
+            }
 
-    const isAuthenticated = authStore.isAuthenticated;
+            const isAuthenticated = authStore.isAuthenticated;
 
-    if (to.meta.requiresAuth && !isAuthenticated) {
-        return { name: 'login' };
-    }
+            if (to.meta.requiresAuth && !isAuthenticated) {
+                return { name: 'login' };
+            }
 
-    if (to.meta.requiresGuest && isAuthenticated) {
-        return { name: 'dashboard' };
-    }
+            if (to.meta.requiresGuest && isAuthenticated) {
+                return { name: 'dashboard' };
+            }
 
-    // Validación de Rol para rutas de administración
-    if (to.meta.requiresRole) {
-        const userRoles = authStore.user?.roles || [];
-        if (!userRoles.includes(to.meta.requiresRole)) {
-            return { name: 'dashboard' }; // Redirige al dashboard si no es SuperAdmin
-        }
-    }
+            // Validación de Rol para rutas de administración
+            if (to.meta.requiresRole) {
+                const userRoles = authStore.user?.roles || [];
+                if (!userRoles.includes(to.meta.requiresRole)) {
+                    return { name: 'dashboard' }; // Redirige al dashboard si no es SuperAdmin
+                }
+            }
 
-    return true;
-});
-```
+            return true;
+        });
+        ```
+
+## Habilitar CORS Dinámico 
+### En el backend (`src/app.js`)
+1. Modificar `src/app.js`:
+    ```js
+    const allowedOrigins = [
+        process.env.FRONTEND_URL_PROD,
+        process.env.FRONTEND_URL_LOCAL_VITE,
+        process.env.FRONTEND_URL_LOCAL_VUE_CLI,
+    ].filter(Boolean);
+
+    app.use(cors({
+        origin: (origin, callback) => {
+            if (!origin || allowedOrigins.includes(origin)) {
+                callback(null, true);
+            } else {
+                callback(new Error('No permitido por CORS'));
+            }
+        },
+        credentials: true
+    }));
+    ```
+2. Agregar las siguientes variables de entorno en `.env`:
+    ```env
+    # ==========================================
+    # CONFIGURACIÓN DEL FRONTEND
+    # ==========================================
+    FRONTEND_URL_PROD=https://familytree2026-frontend.vercel.app
+    FRONTEND_URL_LOCAL_VITE=http://localhost:5173
+    FRONTEND_URL_LOCAL_VUE_CLI=http://localhost:8080
+    ```
+
+### Consumo dinámico de la API en el Frontend (`src/api/axios.js`)
++ Modificar `src/api/axios.js`:
+    ```js
+    import axios from 'axios';
+
+    const api = axios.create({
+        baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api/v1',
+        headers: { 'Content-Type': 'application/json' },
+    });
+
+    api.interceptors.request.use((config) => {
+        const token = localStorage.getItem('token');
+        if (token) config.headers.Authorization = `Bearer ${token}`;
+        return config;
+    });
+
+    export default api;
+    ```
+
+
+## -------------------------
+
+## Guía de Despliegue en Producción (CI/CD $0 USD)
+
+### Persistencia de Datos (Supabase PostgreSQL)
+1. Crear un nuevo proyecto en Supabase.
+2. Ir a `Project Settings` > `Database` y copiar la cadena de conexión URI (modo Transaction o Session).
+3. Aplicar las migraciones desde tu entorno local hacia la base de datos de producción:
+    ```bash
+    DATABASE_URL="postgres://<USER>.<PROJECT_REF>:<ENCODED_PASSWORD>@<POOLER_HOST>:<PORT>/<DATABASE_NAME>" npx prisma migrate deploy
+    ```
+    + Estructura de variables para la documentación:
+        + `<USER>`: Usuario por defecto de la base de datos (habitualmente postgres).
+        + `<PROJECT_REF>`: Identificador único o Reference ID de tu proyecto en Supabase (ej. twnivqutsljjpwutfwgs).
+        + `<ENCODED_PASSWORD>`: Contraseña de la base de datos con caracteres especiales codificados en formato URL (ejemplo: = se convierte en %3D, # en %23).
+        + `<POOLER_HOST>`: Host del Connection Pooler asignado a tu región en Supabase (ej. aws-0-eu-west-2.pooler.supabase.com).
+        + `<PORT>`: Puerto de conexión (5432 para modo Session o 6543 para modo Transaction con ?pgbouncer=true).
+        + `<DATABASE_NAME>`: Nombre de la base de datos lógica (por defecto postgres).
+
+### API Backend (Render Web Service)
+1. Creación de Cuenta y Vinculación con GitHub:
+    + Accede a [render.com](https://render.com/) y haz clic en Get Started.
+    + Selecciona Sign Up with GitHub para autorizar el acceso a tus repositorios.
+2. Creación del Web Service:
+    + En el Dashboard de Render, haz clic en New + y selecciona Web Service.
+    + Elige tu repositorio del backend (familytree2026-backend).
+    + Completa los campos de configuración:
+        + Name: familytree2026-backend
+        + Region: Frankfurt (EU Central) o la más cercana a tu base de datos.
+        + Branch: main
+        + Runtime: Node
+        + Build Command: npm install && npx prisma generate
+        + Start Command: npm start (o node server.js / node index.js, dependiendo de cómo arranques tu servidor en el package.json)
+        + Instance Type: Free ($0/mo)
+    + Configuración de Variables de Entorno: Desplázate hasta la sección Environment Variables y añade:
+        + DATABASE_URL: postgres://<USER>.<PROJECT_REF>:<ENCODED_PASSWORD>@<POOLER_HOST>:<PORT>/<DATABASE_NAME>
+        + JWT_SECRET: tu_clave_secreta_super_segura
+        + PORT: 10000
+        + FRONTEND_URL_PROD: https://familytree2026-frontend.vercel.app
+        + FRONTEND_URL_LOCAL_VITE: http://localhost:5173
+        + FRONTEND_URL_LOCAL_VUE_CLI: http://localhost:8080
+    + Haz clic en Create Web Service.
+    + Copia la URL pública generada (ej. [https://familytree2026-backend.onrender.com](https://familytree2026-backend.onrender.com)).
+
+### Capa de Presentación (Vercel)
+1. Creación de Cuenta:
+    + Accede a vercel.com mediante Continue with GitHub.
+    + En el onboarding, selecciona "I'm working on personal projects" para habilitar el plan Hobby 100% gratuito (sin tarjeta).
+    + En el aviso de seguridad 2FA, selecciona "Skip securing my account".
+    + Haz clic en Add New... > Project e importa familytree2026-frontend.
+2. Importación y Despliegue del Frontend:
+    + En el Dashboard, haz clic en Add New... > Project.
+    + Importa el repositorio del frontend (familytree2026-frontend).
+3. Ajustes de Build & Runtime:
+    + En Settings > Build and Deployment:
+        + Node.js Version: 20.x
+        + Install Command (Override): npm install --legacy-peer-deps (evita errores ERESOLVE por peer dependencies de paquetes como oxlint).
+4. Variables de Entorno en Vercel:
+    + En Settings > Environment Variables:
+        + Key: VITE_API_BASE_URL
+        + Value: https://familytree2026-backend.onrender.com/api/v1
+5. Despliegue Final:
+    + Haz clic en Deploy. Tras guardar o cambiar variables de entorno, ejecuta siempre un Redeploy (sin usar Build Cache) para inyectar la URL de la API en los archivos estáticos de React/Vite.
 
 ## -------------------------
 
@@ -2539,11 +2654,14 @@ npx prisma studio --url "postgresql://dev_user:dev_password@localhost:5432/local
 ### Url
 #### Backend
 1. Home:
-    + `http://localhost:4000`
+    + Dev: `http://localhost:4000`
+    + Prod: `https://familytree2026-backend.onrender.com`
 2. Healthcheck (Comprobación de estado):
-    + `http://localhost:4000/api/v1/health`
+    + Dev: `http://localhost:4000/api/v1/health`
+    + Prod: `https://familytree2026-backend.onrender.com/api/v1/health`
 3. Endpoint de Usuario (Protegido):
-    + `http://localhost:4000/api/v1/auth/me`
+    + Dev: `http://localhost:4000/api/v1/auth/me`
+    + Prod: `https://familytree2026-backend.onrender.com/api/v1/auth/me`
 
 #### Frontend
 1. Home:
