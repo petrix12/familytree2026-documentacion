@@ -581,12 +581,21 @@ Esta sección consolida la inicialización del backend en Node.js, la seguridad 
         const cors = require('cors');
         require('dotenv').config();
 
+        // Rutas
+        const authRoutes = require('./routes/auth.routes');
+        const adminRoutes = require('./routes/admin.routes');
+
         const app = express();
         const PORT = process.env.PORT || 4000;
 
         // Middlewares Globales
         app.use(cors());
         app.use(express.json());
+
+        // Ruta raíz informativa
+        app.get('/', (req, res) => {
+            res.send('API REST de FamilyTree2026 ejecutándose. Visita /api/v1/health para estado.');
+        });
 
         // Ruta de comprobación de estado (Health Check)
         app.get('/api/v1/health', (req, res) => {
@@ -598,11 +607,15 @@ Esta sección consolida la inicialización del backend en Node.js, la seguridad 
             });
         });
 
+        // Registrar Rutas de la API
+        app.use('/api/v1/auth', authRoutes);
+        app.use('/api/v1/admin', adminRoutes);
+
         // Inicialización del Servidor
         app.listen(PORT, () => {
             console.log(`🚀 Servidor ejecutándose en http://localhost:${PORT}`);
             console.log(`📌 Entorno: ${process.env.NODE_ENV || 'development'}`);
-        });        
+        });      
         ```
 
 5. Configurar Script de Arranque en `package.json`:
@@ -883,7 +896,7 @@ Esta fase implementa el registro de usuarios, el inicio de sesión y la emisión
     // ...
     ```
 
-📑 Verificación de Autenticación y Control de Acceso (RBAC)
+## 📑 Verificación de Autenticación y Control de Acceso (RBAC)
 1. Probar los Endpoints con un Cliente HTTP (Postman, Bruno o Insomnia): Prueba directamente los endpoints `/register` y `/login` para confirmar la emisión correcta de tokens JWT y el hash de contraseñas:
     + 🧪 Prueba 1: Registrar un nuevo usuario
         + Método: POST
@@ -1095,27 +1108,1463 @@ Para completar la base de autenticación reutilizable (Starter Kit) y permitir q
                 "message": "Sesión cerrada correctamente"
             }
             ```
----
 
-## 🎨 Construcción del Cliente Frontend SPA (Vue 3 + Vite + Pinia)
-Con la API REST de Autenticación finalizada, procedemos a crear la aplicación Frontend en la carpeta `starter-frontend` que gestionará la experiencia del usuario (Login, Registro, Guarda de Rutas y Redirecciones "estilo Laravel").
 
+## 🎨 Inicialización de la Capa de Presentación (Frontend SPA)
+Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytree2026-frontend` (o `starter-frontend`) utilizando Vue 3 (Composition API / `<script setup>`), Vite, Pinia, Vue Router y Axios, con Tailwind CSS v4 para los estilos.
+
+### Paso 1: Creación del Proyecto Vue 3 con Vite
++ Antes de instalar paquetes de terceros, generamos la estructura oficial de Vue 3 dentro de la carpeta del frontend:
+    ```bash
+    # Ubicarse en la raíz del proyecto
+    cd ~/projects/family_tree2026
+
+    # Crear el proyecto Vue 3 (o dentro de familytree2026-frontend)
+    npm create vue@latest familytree2026-frontend
+    ```
+    + Opciones durante la creación del CLI de Vue:
+        + Project name: familytree2026-frontend
+        + Add TypeScript? No
+        + Add JSX Support? No
+        + Add Vue Router for Single Page Application development? Yes (Opción recomendada)
+        + Add Pinia for state management? Yes (Opción recomendada)
+        + Add Vitest for Unit Testing? No
+        + Add an End-to-End Testing Solution? No
+        + Add ESLint for code quality? Yes
++ Una vez creado, navegamos al directorio e instalamos las dependencias base generadas por Vue:
+    ```bash
+    cd familytree2026-frontend
+    npm install
+    ```
+    + En caso de error, ejecutar:
+    ```bash
+    npm install --legacy-peer-deps
+    ```
+
+### Paso 2: Instalación de Dependencias Adicionales y Tailwind CSS v4
++ Instalamos Axios para las peticiones HTTP y el plugin oficial de Tailwind CSS v4 para Vite:
+    ```bash
+    # Instalar cliente HTTP
+    npm install axios
+    # En caso de error
+    npm install axios --legacy-peer-deps
+
+    # Instalar Tailwind CSS v4 y su integración con Vite
+    npm install -D tailwindcss @tailwindcss/vite
+    # En caso de error
+    npm install -D tailwindcss @tailwindcss/vite --legacy-peer-deps
+    ```
+
+### ⚙️ Paso 3: Configuración de Vite y Tailwind v4
+1. Abre el archivo `vite.config.js` en la raíz de `familytree2026-frontend` y déjalo exactamente así:
+    ```js
+    import { fileURLToPath, URL } from 'node:url'
+    import { defineConfig } from 'vite'
+    import vue from '@vitejs/plugin-vue'
+    import tailwindcss from '@tailwindcss/vite'
+
+    export default defineConfig({
+        plugins: [
+            vue(),
+            tailwindcss(),
+        ],
+        resolve: {
+            alias: {
+                '@': fileURLToPath(new URL('./src', import.meta.url))
+            }
+        }
+    })
+    ```
+2. Abre el archivo `src/assets/main.css` (o `src/style.css`), borra todo lo que tenga dentro y deja únicamente esta línea:
+    ```css
+    @import "tailwindcss";
+    ```
+    + Si existe el archivo `src/assets/base.css`, puedes borrarlo o vaciarlo para que no interfiera con las clases de Tailwind.
+
+### 🌐 Paso 4: Cliente HTTP Centralizado (`src/api/axios.js`)
+1. Crea el archivo `.env` en la raíz de `familytree2026-frontend`:
+    ```env
+    # URL Base de la API REST para el Backend local
+    VITE_API_BASE_URL=http://localhost:4000/api/v1
+    ```
+2. Crea la `carpeta src/api/` y el archivo `src/api/axios.js`:
+    ```js
+    import axios from 'axios';
+
+    const api = axios.create({
+        baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api/v1',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+    });
+
+    // Interceptor para inyectar automáticamente el Token Bearer si existe en localStorage
+    api.interceptors.request.use((config) => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+        }
+        return config;
+    });
+
+    export default api;
+    ```
+
+### 🍍 Paso 5: Store de Autenticación con Pinia (`src/stores/auth.store.js`)
++ Crea o reemplaza el archivo en `src/stores/auth.store.js`:
+    ```js
+    import { defineStore } from 'pinia';
+    import api from '../api/axios';
+
+    export const useAuthStore = defineStore('auth', {
+        state: () => ({
+            user: null,
+            token: localStorage.getItem('token') || null,
+            loading: false,
+            error: null,
+        }),
+
+        getters: {
+            isAuthenticated: (state) => !!state.token && !!state.user,
+            userRoles: (state) => state.user?.roles || [],
+        },
+
+        actions: {
+            // 1. Iniciar Sesión
+            async login(credentials) {
+                this.loading = true;
+                this.error = null;
+                try {
+                    const response = await api.post('/auth/login', credentials);
+                    // Verificación defensiva de la estructura
+                    const data = response.data?.data || response.data;
+                    
+                    this.token = data.token;
+                    this.user = data.user;
+                    localStorage.setItem('token', data.token);
+
+                    return response.data;
+                } catch (err) {
+                    this.error = err.response?.data?.message || 'Error al iniciar sesión';
+                    throw err;
+                } finally {
+                    this.loading = false;
+                }
+            },
+
+            // 2. Registrar Usuario
+            async register(userData) {
+                this.loading = true;
+                this.error = null;
+                try {
+                    const response = await api.post('/auth/register', userData);
+                    const { user, token } = response.data.data;
+
+                    this.token = token;
+                    this.user = user;
+                    localStorage.setItem('token', token);
+
+                    return response.data;
+                } catch (err) {
+                    this.error = err.response?.data?.message || 'Error al registrar usuario';
+                    throw err;
+                } finally {
+                    this.loading = false;
+                }
+            },
+
+            // 3. Verificar Sesión al recargar la página
+            async fetchUser() {
+                if (!this.token) return;
+
+                this.loading = true;
+                try {
+                    const response = await api.get('/auth/me');
+                    this.user = response.data.data.user;
+                } catch (err) {
+                    console.error('Sesión expirada o token inválido:', err);
+                    this.logout();
+                } finally {
+                    this.loading = false;
+                }
+            },
+
+            // 4. Cerrar Sesión
+            async logout() {
+                try {
+                    if (this.token) {
+                    await api.post('/auth/logout');
+                    }
+                } catch (err) {
+                    console.warn('Error respondiendo al servidor en logout:', err);
+                } finally {
+                    this.user = null;
+                    this.token = null;
+                    localStorage.removeItem('token');
+                }
+            },
+        },
+    });
+    ```
+
+### 🚦 Paso 6: Configuración de Vue Router con Guards (`src/router/index.js`)
++ Abre o crea el archivo `src/router/index.js` y reemplaza su contenido:
+    ```js
+    import { createRouter, createWebHistory } from 'vue-router';
+    import { useAuthStore } from '../stores/auth.store';
+
+    // Vistas
+    import HomeView from '../views/HomeView.vue';
+    import LoginView from '../views/LoginView.vue';
+    import RegisterView from '../views/RegisterView.vue';
+    import DashboardView from '../views/DashboardView.vue';
+
+    const router = createRouter({
+        history: createWebHistory(import.meta.env.BASE_URL),
+        routes: [
+            {
+                path: '/',
+                name: 'home',
+                component: HomeView,
+            },
+            {
+                path: '/login',
+                name: 'login',
+                component: LoginView,
+                meta: { requiresGuest: true },
+            },
+            {
+                path: '/register',
+                name: 'register',
+                component: RegisterView,
+                meta: { requiresGuest: true },
+            },
+            {
+                path: '/dashboard',
+                name: 'dashboard',
+                component: DashboardView,
+                meta: { requiresAuth: true },
+            },
+        ],
+    });
+
+    // Navigation Guard Global
+    router.beforeEach(async (to) => {
+        const authStore = useAuthStore();
+
+        // Rehidratar sesión si hay token pero no datos de usuario en memoria
+        if (authStore.token && !authStore.user) {
+            await authStore.fetchUser();
+        }
+
+        const isAuthenticated = authStore.isAuthenticated;
+
+        // 1. Ruta requiere autenticación y el usuario NO está logueado
+        if (to.meta.requiresAuth && !isAuthenticated) {
+            return { name: 'login' };
+        }
+
+        // 2. Ruta requiere ser invitado (Guest) y el usuario SÍ está logueado
+        if (to.meta.requiresGuest && isAuthenticated) {
+            return { name: 'dashboard' };
+        }
+
+        return true;
+    });
+
+    export default router;
+    ```
+
+### 🎨 Paso 7: Vistas de Autenticación y Dashboard (`src/views/`)
+1. Formulario de Inicio de Sesión (`src/views/LoginView.vue`)
+    + Crea el archivo `src/views/LoginView.vue`:
+        ```vue
+        <script setup>
+            import { ref } from 'vue';
+            import { useRouter } from 'vue-router';
+            import { useAuthStore } from '../stores/auth.store';
+
+            const authStore = useAuthStore();
+            const router = useRouter();
+
+            const form = ref({
+                email: '',
+                password: '',
+            });
+
+            const handleSubmit = async () => {
+                try {
+                    await authStore.login(form.value);
+                    router.push({ name: 'dashboard' });
+                } catch (err) {
+                    console.error('Error al iniciar sesión:', err);
+                }
+            };
+        </script>
+
+        <template>
+            <div class="min-h-screen flex items-center justify-center bg-slate-900 text-slate-100 p-4">
+                <div class="w-full max-w-md bg-slate-800 rounded-2xl shadow-xl p-8 border border-slate-700">
+                    <h2 class="text-2xl font-bold text-center text-emerald-400 mb-6">Iniciar Sesión</h2>
+
+                    <div v-if="authStore.error" class="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-300 text-sm">
+                        {{ authStore.error }}
+                    </div>
+
+                    <form @submit.prevent="handleSubmit" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Correo Electrónico</label>
+                            <input
+                                v-model="form.email"
+                                type="email"
+                                required
+                                class="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-200"
+                                placeholder="correo@ejemplo.com"
+                            />
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Contraseña</label>
+                            <input
+                                v-model="form.password"
+                                type="password"
+                                required
+                                class="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-200"
+                                placeholder="••••••••"
+                            />
+                        </div>
+
+                        <button
+                            type="submit"
+                            :disabled="authStore.loading"
+                            class="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 font-semibold rounded-lg shadow-md transition-colors disabled:opacity-50 cursor-pointer"
+                        >
+                            {{ authStore.loading ? 'Cargando...' : 'Entrar' }}
+                        </button>
+                    </form>
+
+                    <p class="mt-6 text-center text-sm text-slate-400">
+                        ¿No tienes cuenta?
+                        <router-link to="/register" class="text-emerald-400 hover:underline">Regístrate aquí</router-link>
+                    </p>
+                </div>
+            </div>
+        </template>        
+        ```
+
+2. Formulario de Registro (`src/views/RegisterView.vue`)
+    + Crea el archivo `src/views/RegisterView.vue`:
+        ```vue
+        <script setup>
+            import { ref } from 'vue';
+            import { useRouter } from 'vue-router';
+            import { useAuthStore } from '../stores/auth.store';
+
+            const authStore = useAuthStore();
+            const router = useRouter();
+
+            const form = ref({
+                firstName: '',
+                lastName: '',
+                email: '',
+                password: '',
+            });
+
+            const handleSubmit = async () => {
+                try {
+                    await authStore.register(form.value);
+                    router.push({ name: 'dashboard' });
+                } catch (err) {
+                    console.error('Error en registro:', err);
+                }
+            };
+        </script>
+
+        <template>
+            <div class="min-h-screen flex items-center justify-center bg-slate-900 text-slate-100 p-4">
+                <div class="w-full max-w-md bg-slate-800 rounded-2xl shadow-xl p-8 border border-slate-700">
+                    <h2 class="text-2xl font-bold text-center text-emerald-400 mb-6">Crear Cuenta</h2>
+
+                    <div v-if="authStore.error" class="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-300 text-sm">
+                        {{ authStore.error }}
+                    </div>
+
+                    <form @submit.prevent="handleSubmit" class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Nombre</label>
+                                <input
+                                    v-model="form.firstName"
+                                    type="text"
+                                    required
+                                    class="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-200"
+                                    placeholder="Juan"
+                                />
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Apellido</label>
+                                <input
+                                    v-model="form.lastName"
+                                    type="text"
+                                    required
+                                    class="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-200"
+                                    placeholder="Pérez"
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Correo Electrónico</label>
+                            <input
+                                v-model="form.email"
+                                type="email"
+                                required
+                                class="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-200"
+                                placeholder="correo@ejemplo.com"
+                            />
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Contraseña</label>
+                            <input
+                                v-model="form.password"
+                                type="password"
+                                required
+                                class="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-200"
+                                placeholder="Mínimo 6 caracteres"
+                            />
+                        </div>
+
+                        <button
+                            type="submit"
+                            :disabled="authStore.loading"
+                            class="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 font-semibold rounded-lg shadow-md transition-colors disabled:opacity-50 cursor-pointer"
+                        >
+                            {{ authStore.loading ? 'Registrando...' : 'Registrarse' }}
+                        </button>
+                    </form>
+
+                    <p class="mt-6 text-center text-sm text-slate-400">
+                        ¿Ya tienes cuenta?
+                        <router-link to="/login" class="text-emerald-400 hover:underline">Inicia sesión</router-link>
+                    </p>
+                </div>
+            </div>
+        </template>
+        ```
+
+3. Vista Protegida del Dashboard (`src/views/DashboardView.vue`)
+    + Crea el archivo `src/views/DashboardView.vue`:
+        ```vue
+        <script setup>
+            import { useRouter } from 'vue-router';
+            import { useAuthStore } from '../stores/auth.store';
+
+            const authStore = useAuthStore();
+            const router = useRouter();
+
+            const handleLogout = async () => {
+                await authStore.logout();
+                router.push({ name: 'login' });
+            };
+        </script>
+
+        <template>
+            <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
+                <!-- Navbar -->
+                <header class="bg-slate-800 border-b border-slate-700 py-4 px-6 flex justify-between items-center">
+                    <h1 class="text-xl font-bold text-emerald-400">Starter App Dashboard</h1>
+                    <div class="flex items-center gap-4">
+                        <span class="text-sm text-slate-300">{{ authStore.user?.name }}</span>
+                        <button
+                            @click="handleLogout"
+                            class="px-3 py-1.5 bg-red-600/80 hover:bg-red-500 text-sm font-medium rounded-lg transition-colors cursor-pointer"
+                        >
+                            Cerrar Sesión
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Main Content -->
+                <main class="flex-1 p-6 max-w-4xl mx-auto w-full">
+                    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-lg">
+                        <h2 class="text-lg font-semibold text-emerald-400 mb-4">Perfil de Usuario Autenticado</h2>
+                        
+                        <div class="space-y-3 text-slate-300">
+                            <p><strong class="text-slate-100">ID:</strong> {{ authStore.user?.id }}</p>
+                            <p><strong class="text-slate-100">Nombre:</strong> {{ authStore.user?.name }}</p>
+                            <p><strong class="text-slate-100">Correo:</strong> {{ authStore.user?.email }}</p>
+                            <p>
+                                <strong class="text-slate-100">Roles:</strong>
+                                    <span
+                                        v-for="role in authStore.userRoles"
+                                        :key="role"
+                                        class="ml-2 inline-block px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold rounded"
+                                    >
+                                        {{ role }}
+                                </span>
+                            </p>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </template>
+        ```
+
+4. Limpiar `src/App.vue`:
+    + Abre `src/App.vue` y reemplaza todo su contenido con esto:
+        ```vue
+        <script setup>
+            import { RouterView } from 'vue-router'
+        </script>
+
+        <template>
+            <RouterView />
+        </template>
+        ```
+
+5. Rediseñar la Landing Page (`src/views/HomeView.vue`)
+    + Reemplaza el contenido de `src/views/HomeView.vue` para que la raíz / muestre una bienvenida profesional:
+        ```vue
+        <script setup>
+            import { useAuthStore } from '../stores/auth.store';
+
+            const authStore = useAuthStore();
+        </script>
+
+        <template>
+            <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-between">
+                <!-- Navbar simple -->
+                <header class="py-6 px-8 flex justify-between items-center border-b border-slate-800">
+                    <div class="flex items-center gap-2">
+                        <span class="text-2xl">🌳</span>
+                        <span class="font-bold text-xl text-emerald-400">FamilyTree 2026</span>
+                    </div>
+                    <div>
+                        <router-link
+                            v-if="authStore.isAuthenticated"
+                            to="/dashboard"
+                            class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-semibold transition-colors"
+                        >
+                            Ir al Dashboard
+                        </router-link>
+                        <div v-else class="flex gap-4">
+                            <router-link to="/login" class="px-4 py-2 text-slate-300 hover:text-white text-sm font-medium">
+                                Iniciar Sesión
+                            </router-link>
+                            <router-link to="/register" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-semibold transition-colors">
+                                Registrarse
+                            </router-link>
+                        </div>
+                    </div>
+                </header>
+
+                <!-- Hero Section -->
+                <main class="flex-1 flex flex-col items-center justify-center text-center px-4 max-w-3xl mx-auto">
+                    <span class="px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold rounded-full mb-6">
+                        Starter Kit 2026
+                    </span>
+                    <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight mb-6">
+                        Gestiona la historia de tu familia de forma <span class="text-emerald-400">segura y moderna</span>.
+                    </h1>
+                    <p class="text-slate-400 text-lg mb-8 max-w-xl">
+                        Plataforma construida sobre Node.js, Express, PostgreSQL y Vue 3 con autenticación basada en tokens JWT.
+                    </p>
+                    <div class="flex gap-4">
+                        <router-link
+                            :to="authStore.isAuthenticated ? '/dashboard' : '/register'"
+                            class="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 font-semibold rounded-xl shadow-lg transition-colors"
+                        >
+                            {{ authStore.isAuthenticated ? 'Ir a mi Panel' : 'Comenzar Ahora' }}
+                        </router-link>
+                    </div>
+                </main>
+
+                <!-- Footer -->
+                <footer class="py-6 text-center text-slate-500 text-sm border-t border-slate-800">
+                    &copy; 2026 FamilyTree. Todos los derechos reservados.
+                </footer>
+            </div>
+        </template>
+        ```
+
+6. Crear Vista 404 (`src/views/NotFoundView.vue`)
+    + Crea el archivo `src/views/NotFoundView.vue`:
+```vue
+<template>
+    <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center justify-center p-4 text-center">
+        <h1 class="text-8xl font-black text-emerald-500 mb-2">404</h1>
+        <h2 class="text-2xl font-bold mb-4">Página no encontrada</h2>
+        <p class="text-slate-400 mb-6 max-w-md">
+            La ruta a la que intentas acceder no existe o ha sido movida a otro lugar.
+        </p>
+        <router-link
+            to="/"
+            class="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-emerald-400 font-medium transition-colors"
+        >
+            Volver al Inicio
+        </router-link>
+    </div>
+</template>
+```
+
+7. Actualizar las rutas en `src/router/index.js`
+    + Añade la ruta comodín al final del arreglo routes en `src/router/index.js`:
+```js
+import NotFoundView from '../views/NotFoundView.vue';
+
+// En la lista de rutas:
+routes: [
+    { path: '/', name: 'home', component: HomeView },
+    { path: '/login', name: 'login', component: LoginView, meta: { requiresGuest: true } },
+    { path: '/register', name: 'register', component: RegisterView, meta: { requiresGuest: true } },
+    { path: '/dashboard', name: 'dashboard', component: DashboardView, meta: { requiresAuth: true } },
+    // Comodín para capturar cualquier ruta inexistente
+    { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView },
+]
+```
+
+## 🔒 Estrategia de Roles y Control de Acceso (RBAC)
+
+### ⚙️ Paso 1: Ajuste en Backend — Usuario Sin Rol Por Defecto
++ Primero, garantizamos que el registro asigna una lista vacía de roles.
++ Abre `familytree2026-backend/src/controllers/auth.controller.js` y verifica que en el método register no estés asignando ningún rol por defecto (o asegúrate de pasarlo vacío []):
+    ```js
+    const bcrypt = require('bcryptjs');
+    const jwt = require('jsonwebtoken');
+    const prisma = require('../config/prisma');
+
+    const generateToken = (user, roles = []) => {
+        return jwt.sign(
+            {
+                id: user.id,
+                email: user.email,
+                roles: roles,
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+        );
+    };
+
+    // 1. REGISTRO DE USUARIO (Sin roles por defecto)
+    const register = async (req, res) => {
+        try {
+            const { email, password, firstName, lastName } = req.body;
+            const fullName = `${firstName} ${lastName}`;
+
+            const existingUser = await prisma.user.findUnique({ where: { email } });
+            if (existingUser) {
+                return res.status(400).json({
+                    status: 'fail',
+                    message: 'El correo electrónico ya está registrado',
+                });
+            }
+
+            const salt = await bcrypt.genSalt(10);
+            const passwordHash = await bcrypt.hash(password, salt);
+
+            // Se crea el usuario SIN incluir la relación de roles
+            const newUser = await prisma.user.create({
+                data: {
+                    email,
+                    password: passwordHash,
+                    name: fullName,
+                },
+                select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    createdAt: true,
+                },
+            });
+
+            // Se genera token con un arreglo de roles vacío []
+            const token = generateToken(newUser, []);
+
+            return res.status(201).json({
+                status: 'success',
+                message: 'Usuario registrado correctamente (sin permisos asignados)',
+                data: {
+                    user: {
+                        ...newUser,
+                        roles: [],
+                    },
+                    token,
+                },
+            });
+        } catch (error) {
+            console.error('Error en registro:', error);
+            return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+        }
+    };
+    ```
+
+### 🌱 Paso 2: Crear Seeder del SUPER_ADMIN (`src/seeders/superadmin.seeder.js`)
+Crearemos un script reutilizable e independiente que inserta las tablas iniciales de roles y crea la cuenta del Administrador Principal si no existe.
+1. Crea la carpeta `src/seeders/` en `familytree2026-backend`.
+2. Crea el archivo `src/seeders/superadmin.seeder.js`:
+    ```js
+    const bcrypt = require('bcryptjs');
+    const prisma = require('../config/prisma');
+    require('dotenv').config();
+
+    const seedSuperAdmin = async () => {
+        try {
+            console.log('🌱 Iniciando Seeder de SuperAdmin...');
+
+            const adminEmail = process.env.SUPER_ADMIN_EMAIL || 'admin@familytree.com';
+            const adminPassword = process.env.SUPER_ADMIN_PASSWORD;
+
+            if (!adminPassword) {
+                throw new Error('❌ Error: Debes definir SUPER_ADMIN_PASSWORD en tu archivo .env');
+            }
+
+            // 1. Asegurar los 3 roles base en la BD
+            const roles = [
+                { name: 'SUPER_ADMIN', description: 'Acceso total y gestión del sistema' },
+                { name: 'ADMIN', description: 'Administrador de contenido y usuarios' },
+                { name: 'USER', description: 'Usuario estándar' },
+            ];
+
+            for (const r of roles) {
+                await prisma.role.upsert({
+                    where: { name: r.name },
+                    update: {},
+                    create: r,
+                });
+            }
+
+            // 2. Obtener el ID del rol SUPER_ADMIN
+            const superAdminRole = await prisma.role.findUnique({
+                where: { name: 'SUPER_ADMIN' },
+            });
+
+            // 3. Crear o actualizar el Usuario SUPER_ADMIN
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(adminPassword, salt);
+
+            const adminUser = await prisma.user.upsert({
+                where: { email: adminEmail },
+                update: {},
+                create: {
+                    name: 'Super Admin',
+                    email: adminEmail,
+                    password: hashedPassword,
+                    roles: {
+                        create: {
+                            roleId: superAdminRole.id,
+                        },
+                    },
+                },
+            });
+
+            console.log('✅ Seeder ejecutado con éxito.');
+            console.log(`👤 SuperAdmin verificado: ${adminUser.email}`);
+        } catch (error) {
+            console.error('❌ Error ejecutando el Seeder:', error.message);
+        } finally {
+            await prisma.$disconnect();
+        }
+    };
+
+    seedSuperAdmin();
+    ```
+3. Configuración del Archivo `.env` Local
+    + Edita el archivo `.env` en la raíz de `familytree2026-backend` y agrega las siguiente variables de entorno:
+        ```env
+        SUPER_ADMIN_EMAIL = admin@familytree.com
+        SUPER_ADMIN_PASSWORD = 12345678
+        ```
+4. Agrega el comando para correr el seeder en el `package.json` de tu Backend:
+    ```json
+    "scripts": {
+        "dev": "nodemon src/app.js",
+        "seed": "node src/seeders/superadmin.seeder.js"
+    }
+    ```
+5. Ejecuta en la terminal del backend:
+    ```bas
+    node src/seeders/superadmin.seeder.js
+    ```
+
+## Controlador para administración de usuarios (Backend)
+1. Seeder de Usuarios Falsos (Estilo Laravel)
+    + Instala la librería de generación de datos falsos en el backend:
+        ```bash
+        npm install -D @faker-js/faker
+        ```
+2. Crea el archivo `src/seeders/users.seeder.js`:
+    ```js
+    const { fakerES: faker } = require('@faker-js/faker');
+    const bcrypt = require('bcryptjs');
+    const prisma = require('../config/prisma');
+
+    const seedUsers = async (quantity = 25) => {
+        try {
+            console.log(`🌱 Generando ${quantity} usuarios falsos...`);
+
+            const defaultPassword = await bcrypt.hash('Password123!', 10);
+            const usersData = [];
+
+            for (let i = 0; i < quantity; i++) {
+                const firstName = faker.person.firstName();
+                const lastName = faker.person.lastName();
+                
+                usersData.push({
+                    name: `${firstName} ${lastName}`,
+                    email: faker.internet.email({ firstName, lastName }).toLowerCase(),
+                    password: defaultPassword,
+                });
+            }
+
+            // Insertar masivamente
+            await prisma.user.createMany({
+                data: usersData,
+                skipDuplicates: true,
+            });
+
+            console.log(`✅ ${quantity} usuarios creados exitosamente.`);
+        } catch (error) {
+            console.error('❌ Error seeding usuarios:', error.message);
+        } finally {
+            await prisma.$disconnect();
+        }
+    };
+
+    seedUsers();
+    ```
+3. Ejecútalo con: 
+    ```bash
+    node src/seeders/users.seeder.js
+    ```
+
+4. Backend: Middleware de Protección RBAC y Controlador Admin
+    + Middleware de Verificación de Roles (`src/middlewares/role.middleware.js`): Este middleware valida que el usuario logueado tenga alguno de los roles requeridos:
+        ```js
+        const requireRoles = (...allowedRoles) => {
+            return (req, res, next) => {
+                if (!req.user || !req.user.roles) {
+                    return res.status(403).json({
+                        status: 'fail',
+                        message: 'Acceso denegado: Usuario sin información de roles',
+                    });
+                }
+
+                const hasRole = req.user.roles.some((role) => allowedRoles.includes(role));
+
+                if (!hasRole) {
+                    return res.status(403).json({
+                        status: 'fail',
+                        message: 'No tienes los permisos necesarios para realizar esta acción',
+                    });
+                }
+
+                next();
+            };
+        };
+
+        module.exports = { requireRoles };
+        ```
+5. Controlador de Administración de Usuarios (`src/controllers/admin.controller.js`): Incluye búsqueda parcial por coincidencia (search), paginación y actualización de roles:
+    ```js
+    const prisma = require('../config/prisma');
+
+    // Listar usuarios con búsqueda y paginación
+    const getUsers = async (req, res) => {
+        try {
+            const { search = '', page = 1, limit = 10 } = req.query;
+            const skip = (parseInt(page) - 1) * parseInt(limit);
+
+            const where = search
+            ? {
+                OR: [
+                    { name: { contains: search, mode: 'insensitive' } },
+                    { email: { contains: search, mode: 'insensitive' } },
+                ],
+            }
+            : {};
+
+            const [total, users] = await prisma.$transaction([
+                prisma.user.count({ where }),
+                prisma.user.findMany({
+                    where,
+                    skip,
+                    take: parseInt(limit),
+                    orderBy: { createdAt: 'desc' },
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                        isActive: true,
+                        createdAt: true,
+                        roles: {
+                            select: {
+                                role: { select: { name: true } },
+                            },
+                        },
+                    },
+                }),
+            ]);
+
+            // Formatear la estructura de respuesta de roles
+            const formattedUsers = users.map((u) => ({
+                ...u,
+                roles: u.roles.map((r) => r.role.name),
+            }));
+
+            return res.status(200).json({
+                status: 'success',
+                data: {
+                    users: formattedUsers,
+                    pagination: {
+                        total,
+                        page: parseInt(page),
+                        totalPages: Math.ceil(total / parseInt(limit)),
+                    },
+                },
+            });
+        } catch (error) {
+            console.error('Error al obtener usuarios:', error);
+            return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+        }
+    };
+
+    // Asignar / Cambiar Roles de un usuario
+    const updateUserRoles = async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { roles } = req.body; // Ejemplo: ["ADMIN", "USER"] o []
+
+            // 1. Eliminar asignaciones de roles actuales
+            await prisma.userRole.deleteMany({ where: { userId: id } });
+
+            // 2. Obtener IDs de los nuevos roles solicitados
+            if (roles && roles.length > 0) {
+                const dbRoles = await prisma.role.findMany({
+                    where: { name: { in: roles } },
+                });
+
+                // 3. Crear nuevas relaciones
+                const userRolesData = dbRoles.map((role) => ({
+                    userId: id,
+                    roleId: role.id,
+                }));
+
+                await prisma.userRole.createMany({ data: userRolesData });
+            }
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Roles actualizados correctamente',
+            });
+        } catch (error) {
+            console.error('Error al actualizar roles:', error);
+            return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+        }
+    };
+
+    // Actualizar información básica del usuario (Nombre y Email)
+    const updateUser = async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { name, email } = req.body;
+
+            // Validar que el usuario exista
+            const existingUser = await prisma.user.findUnique({ where: { id } });
+            if (!existingUser) {
+                return res.status(404).json({
+                    status: 'fail',
+                    message: 'Usuario no encontrado',
+                });
+            }
+
+            // Si se intenta cambiar el email, verificar que no esté registrado por otro usuario
+            if (email && email !== existingUser.email) {
+                const emailTaken = await prisma.user.findUnique({ where: { email } });
+                if (emailTaken) {
+                    return res.status(400).json({
+                        status: 'fail',
+                        message: 'El correo electrónico ya está en uso por otro usuario',
+                    });
+                }
+            }
+
+            // Actualizar solo nombre e email (los campos omitidos se mantienen intactos)
+            const updatedUser = await prisma.user.update({
+                where: { id },
+                data: {
+                    name: name || existingUser.name,
+                    email: email || existingUser.email,
+                },
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    isActive: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    roles: {
+                        select: {
+                            role: { select: { name: true } },
+                        },
+                    },
+                },
+            });
+
+            // Formatear salida de roles
+            const formattedUser = {
+                ...updatedUser,
+                roles: updatedUser.roles.map((r) => r.role.name),
+            };
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Perfil de usuario actualizado correctamente',
+                data: { user: formattedUser },
+            });
+        } catch (error) {
+            console.error('Error al actualizar usuario:', error);
+            return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+        }
+    };
+
+    module.exports = { getUsers, updateUserRoles, updateUser };
+    ```
+6. Definir Rutas en Express (`src/routes/admin.routes.js`)
+    ```js
+    const express = require('express');
+    const router = express.Router();
+
+    // Importar los middlewares exportados desde auth.middleware.js
+    const { authenticateJWT, authorizeRoles } = require('../middlewares/auth.middleware');
+
+    // Importar controladores de administración
+    const { getUsers, updateUserRoles, updateUser } = require('../controllers/admin.controller');
+
+    // Proteger todas las rutas de este router
+    router.use(authenticateJWT);
+    router.use(authorizeRoles('SUPER_ADMIN'));
+
+    // Rutas
+    router.get('/users', getUsers);
+    router.put('/users/:id', updateUser);
+    router.put('/users/:id/roles', updateUserRoles);
+
+    module.exports = router;
+    ```
+
+## CRUD usuarios Frontend
+1. 📡 Crear el servicio de API (`src/services/admin.service.js`)
+    + Crea este archivo para encapsular las peticiones HTTP de administración:
+        ```js
+        import api from '@/api/axios';
+
+        export const adminService = {
+            async getUsers(params = {}) {
+                const response = await api.get('/admin/users', { params });
+                return response.data;
+            },
+
+            // Actualizar datos del perfil (nombre y correo)
+            async updateUser(userId, userData) {
+                const response = await api.put(`/admin/users/${userId}`, userData);
+                return response.data;
+            },
+
+            async updateUserRoles(userId, roles) {
+                const response = await api.put(`/admin/users/${userId}/roles`, { roles });
+                return response.data;
+            },
+        };  
+        ```
+2. 🎨 Crear la Vista UsersAdminView.vue (`src/views/admin/UsersAdminView.vue`)
++ Crea la carpeta src/views/admin/ si no existe y añade la vista:
+```vue
+<template>
+    <!-- 
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"> -->
+    <div class="min-h-screen bg-slate-900 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Encabezado -->
+        <div class="md:flex md:items-center md:justify-between mb-8">
+            <div class="flex-1 min-w-0">
+                <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Gestión de Usuarios</h1>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Administra los permisos y accesos de la plataforma en tiempo real.</p>                
+            </div>
+        </div>
+
+        <!-- Barra de Búsqueda y Filtros -->
+        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm rounded-2xl p-4 mb-6">
+            <div class="relative">
+                <input
+                    v-model="searchQuery"
+                    @input="handleSearch"
+                    type="text"
+                    placeholder="Buscar por nombre o correo electrónico..."
+                    class="w-full bg-slate-50 dark:bg-slate-900/50 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-600 rounded-lg px-10 py-2.5 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-shadow"
+                />
+                <svg
+                    class="w-5 h-5 text-slate-400 absolute left-3 top-3"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                >
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+            </div>
+        </div>
+
+        <!-- Tabla de Usuarios -->
+        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
+            <div v-if="loading" class="p-12 text-center text-slate-500 dark:text-slate-400">
+                <span class="animate-spin inline-block w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full mb-2"></span>
+                <p>Cargando usuarios...</p>
+            </div>
+
+            <div v-else-if="users.length === 0" class="p-12 text-center text-slate-500 dark:text-slate-400">
+                No se encontraron usuarios que coincidan con la búsqueda.
+            </div>
+
+            <table v-else class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead class="bg-slate-50 dark:bg-slate-900/50">
+                    <tr>
+                        <th class="px-6 py-4 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Usuario</th>
+                        <th class="px-6 py-4 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Roles Asignados</th>
+                        <th class="px-6 py-4 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Fecha Registro</th>
+                        <th class="px-6 py-4 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    <tr v-for="user in users" :key="user.id" class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                        <!-- Info Usuario -->
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="flex items-center">
+                                <div class="w-10 h-10 rounded-full bg-emerald-100 dark:bg-slate-700 flex items-center justify-center font-bold text-emerald-600 dark:text-emerald-400 uppercase border border-emerald-200 dark:border-slate-600">
+                                    {{ user.name ? user.name.charAt(0) : 'U' }}
+                                </div>
+                                <div class="ml-4">
+                                    <div class="text-sm font-medium text-slate-900 dark:text-slate-200">{{ user.name }}</div>
+                                    <div class="text-sm text-slate-500 dark:text-slate-400">{{ user.email }}</div>
+                                </div>
+                            </div>
+                        </td>
+
+                        <!-- Badges de Roles -->
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="flex flex-wrap gap-1.5">
+                                <span
+                                    v-for="role in user.roles"
+                                    :key="role"
+                                    :class="getRoleBadgeClass(role)"
+                                    class="px-2.5 py-0.5 rounded-full text-xs font-semibold border"
+                                >
+                                    {{ role }}
+                                </span>
+                                <span v-if="user.roles.length === 0" class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600">
+                                    Sin permisos (Guest)
+                                </span>
+                            </div>
+                        </td>
+
+                        <!-- Fecha -->
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">
+                            {{ formatDate(user.createdAt) }}
+                        </td>
+
+                        <!-- Acciones -->
+                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <button
+                                @click="openRoleModal(user)"
+                                class="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30 hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-500 dark:hover:text-white rounded-lg transition-all"
+                            >
+                                Editar Roles
+                            </button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- Paginación -->
+            <div v-if="pagination.totalPages > 1" class="px-6 py-4 bg-slate-50 dark:bg-slate-900/40 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                <span class="text-sm text-slate-500 dark:text-slate-400">
+                    Página {{ pagination.page }} de {{ pagination.totalPages }}
+                </span>
+                <div class="flex gap-2">
+                    <button
+                        :disabled="pagination.page === 1"
+                        @click="changePage(pagination.page - 1)"
+                        class="px-3 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                        Anterior
+                    </button>
+                    <button
+                        :disabled="pagination.page === pagination.totalPages"
+                        @click="changePage(pagination.page + 1)"
+                        class="px-3 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                        Siguiente
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal de Asignación de Roles -->
+        <div v-if="selectedUser" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-black/70 backdrop-blur-sm">
+            <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+                <h3 class="text-xl font-bold text-slate-900 dark:text-slate-100 mb-1">Gestionar Roles</h3>
+                <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                    Modificando permisos para <span class="text-emerald-600 dark:text-emerald-400 font-semibold">{{ selectedUser.name }}</span>
+                </p>
+
+                <div class="space-y-3 mb-6">
+                    <label v-for="role in availableRoles" :key="role" class="flex items-center space-x-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-emerald-300 dark:hover:border-slate-500 transition-colors">
+                        <input
+                            type="checkbox"
+                            :value="role"
+                            v-model="modalRoles"
+                            class="w-4 h-4 text-emerald-600 bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 rounded focus:ring-emerald-500"
+                        />
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ role }}</span>
+                    </label>
+                </div>
+
+                <div class="flex justify-end gap-3">
+                    <button
+                        @click="selectedUser = null"
+                        class="px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-medium rounded-xl transition-colors"
+                    >
+                        Cancelar
+                    </button>
+                    <button
+                        @click="saveUserRoles"
+                        :disabled="saving"
+                        class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-xl disabled:opacity-50 transition-colors"
+                    >
+                        {{ saving ? 'Guardando...' : 'Guardar Cambios' }}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<script setup>
+    import { ref, onMounted } from 'vue';
+    import { adminService } from '../../services/admin.service';
+
+    // --- ESTADOS GENERALES Y TABLA ---
+    const users = ref([]);
+    const loading = ref(true);
+    const saving = ref(false);
+    const searchQuery = ref('');
+    const pagination = ref({ page: 1, totalPages: 1, total: 0 });
+    let searchTimeout = null;
+
+    // --- ESTADOS PARA EDICIÓN DE ROLES ---
+    const selectedUser = ref(null);
+    const modalRoles = ref([]);
+    const availableRoles = ['SUPER_ADMIN', 'ADMIN', 'USER'];
+
+    // --- ESTADOS PARA EDICIÓN DE DATOS PERSONALES (NUEVO) ---
+    const editingUser = ref(null);
+    const userForm = ref({ name: '', email: '' });
+
+    // --- LÓGICA DE CARGA Y BÚSQUEDA ---
+    const fetchUsers = async (page = 1) => {
+        loading.value = true;
+        try {
+            const res = await adminService.getUsers({
+                search: searchQuery.value,
+                page,
+                limit: 10,
+            });
+            users.value = res.data.users;
+            pagination.value = res.data.pagination;
+        } catch (err) {
+            console.error('Error al cargar usuarios:', err);
+        } finally {
+            loading.value = false;
+        }
+    };
+
+    const handleSearch = () => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            fetchUsers(1);
+        }, 300);
+    };
+
+    const changePage = (newPage) => {
+        fetchUsers(newPage);
+    };
+
+    // --- LÓGICA DE ROLES ---
+    const openRoleModal = (user) => {
+        selectedUser.value = user;
+        modalRoles.value = [...user.roles];
+    };
+
+    const saveUserRoles = async () => {
+        if (!selectedUser.value) return;
+        saving.value = true;
+        try {
+            await adminService.updateUserRoles(selectedUser.value.id, modalRoles.value);
+            selectedUser.value.roles = [...modalRoles.value];
+            selectedUser.value = null;
+        } catch (err) {
+            alert('Error al guardar los roles');
+        } finally {
+            saving.value = false;
+        }
+    };
+
+    // --- LÓGICA DE DATOS PERSONALES (NUEVO) ---
+    const openEditModal = (user) => {
+        editingUser.value = user;
+        userForm.value = { name: user.name, email: user.email };
+    };
+
+    const saveUserData = async () => {
+        if (!editingUser.value) return;
+        saving.value = true;
+        try {
+            const res = await adminService.updateUser(editingUser.value.id, userForm.value);
+            
+            // Actualiza de inmediato la fila en la reactividad local de Vue
+            editingUser.value.name = res.data.user.name;
+            editingUser.value.email = res.data.user.email;
+            
+            editingUser.value = null;
+        } catch (err) {
+            alert(err.response?.data?.message || 'Error al actualizar el usuario');
+        } finally {
+            saving.value = false;
+        }
+    };
+
+    // --- UTILITIES DE FORMATO Y ESTILOS ---
+    const getRoleBadgeClass = (role) => {
+        switch (role) {
+            case 'SUPER_ADMIN':
+                return 'bg-purple-900/40 text-purple-300 border-purple-500/30';
+            case 'ADMIN':
+                return 'bg-blue-900/40 text-blue-300 border-blue-500/30';
+            default:
+                return 'bg-emerald-900/40 text-emerald-300 border-emerald-500/30';
+        }
+    };
+
+    const formatDate = (dateStr) => {
+        return new Date(dateStr).toLocaleDateString('es-ES', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+        });
+    };
+
+    onMounted(() => {
+        fetchUsers();
+    });   
+</script>
+```
+3. 🛣️ Registrar la Ruta y Guard de Navegación (`src/router/index.js`)
+    + Añade la ruta en tu router asegurándote de restringir el acceso solo a usuarios con rol SUPER_ADMIN:    
+        ```js
+        // En las rutas de src/router/index.js
+        {
+            path: '/admin/users',
+            name: 'admin-users',
+            component: () => import('../views/admin/UsersAdminView.vue'),
+            meta: { requiresAuth: true, requiresRole: 'SUPER_ADMIN' },
+        }
+        ```
+    + Y actualiza el beforeEach para validar el meta requiresRole:
+```js
+router.beforeEach(async (to) => {
+    const authStore = useAuthStore();
+
+    if (authStore.token && !authStore.user) {
+        await authStore.fetchUser();
+    }
+
+    const isAuthenticated = authStore.isAuthenticated;
+
+    if (to.meta.requiresAuth && !isAuthenticated) {
+        return { name: 'login' };
+    }
+
+    if (to.meta.requiresGuest && isAuthenticated) {
+        return { name: 'dashboard' };
+    }
+
+    // Validación de Rol para rutas de administración
+    if (to.meta.requiresRole) {
+        const userRoles = authStore.user?.roles || [];
+        if (!userRoles.includes(to.meta.requiresRole)) {
+            return { name: 'dashboard' }; // Redirige al dashboard si no es SuperAdmin
+        }
+    }
+
+    return true;
+});
+```
 
 ## -------------------------
 
 ```bash
 ```
 
+## Verificar Servidores en Ejecución
 
+### Terminal 1 (Backend):
+```bash
+cd familytree2026-backend
 npm run dev
+```
+
+### Terminal 2 (Frontend):
+```bash
+cd familytree2026-frontend
+npm run dev
+```
+
+
+### Base de datos
+```bash
+cd familytree2026-backend
 npx prisma studio
+# en caso de problemas
 npx prisma studio --url "postgresql://dev_user:dev_password@localhost:5432/local_starter_db?schema=public"
+```
+
+### Url
+#### Backend
+1. Home:
+    + `http://localhost:4000`
+2. Healthcheck (Comprobación de estado):
+    + `http://localhost:4000/api/v1/health`
+3. Endpoint de Usuario (Protegido):
+    + `http://localhost:4000/api/v1/auth/me`
+
+#### Frontend
+1. Home:
+    + `http://localhost:5173`
+2. Prueba de Registro:
+    + `http://localhost:5173/register`
+3. Prueba de Vista Protegida:
+    + `http://localhost:5173/dashboard`
+4. Prueba de Rehidratación de Sesión (Persistence):
+    + Presiona F5 (Recargar página). El Navigation Guard debe ejecutar `fetchUser()`, validar el token contra el endpoint GET `/me` y mantenerte en `/dashboard` sin cerrar tu sesión.
+5. Prueba de Cierre de Sesión:
+    + Haz clic en el botón Cerrar Sesión. Debe limpiar el localStorage, borrar el usuario de Pinia y redirigirte a `/login`.
+6. Prueba de Protección de Rutas:
+    + Estando deslogueado, intenta escribir manualmente `http://localhost:5173/dashboard` en la barra de direcciones. El Navigation Guard debe rebotarte de inmediato a `/login`.
 
 
-http://localhost:4000/api/v1/health
 
-http://localhost:51212/
+## borradores
+`http://localhost:51212/`
 
+`http://localhost:5173/admin/users`
 
 familytree2026-backend
 familytree2026-frontend
