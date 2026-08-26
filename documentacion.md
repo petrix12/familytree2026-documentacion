@@ -1109,7 +1109,6 @@ Para completar la base de autenticación reutilizable (Starter Kit) y permitir q
             }
             ```
 
-
 ## 🎨 Inicialización de la Capa de Presentación (Frontend SPA)
 Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytree2026-frontend` (o `starter-frontend`) utilizando Vue 3 (Composition API / `<script setup>`), Vite, Pinia, Vue Router y Axios, con Tailwind CSS v4 para los estilos.
 
@@ -1153,6 +1152,11 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
     npm install -D tailwindcss @tailwindcss/vite
     # En caso de error
     npm install -D tailwindcss @tailwindcss/vite --legacy-peer-deps
+
+    # Sweet Alert 2
+    npm install sweetalert2
+    # En caso de error
+    npm install sweetalert2 --legacy-peer-deps
     ```
 
 ### ⚙️ Paso 3: Configuración de Vite y Tailwind v4
@@ -1178,6 +1182,18 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
 2. Abre el archivo `src/assets/main.css` (o `src/style.css`), borra todo lo que tenga dentro y deja únicamente esta línea:
     ```css
     @import "tailwindcss";
+    
+    /* Asegura que la raíz ocupe siempre al menos el 100% de la ventana */
+    html,
+    body,
+    #app {
+        min-height: 100vh;
+        min-height: 100dvh; /* Soporte dinámico para navegadores modernos */
+        margin: 0;
+        padding: 0;
+        background-color: #0f172a; /* Reemplaza por el color oscuro base de tu tema (ej. slate-900) */
+        color: #f8fafc;
+    }
     ```
     + Si existe el archivo `src/assets/base.css`, puedes borrarlo o vaciarlo para que no interfiera con las clases de Tailwind.
 
@@ -1554,62 +1570,72 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
         ```
 
 3. Vista Protegida del Dashboard (`src/views/DashboardView.vue`)
-    + Crea el archivo `src/views/DashboardView.vue`:
-        ```vue
-        <script setup>
-            import { useRouter } from 'vue-router';
-            import { useAuthStore } from '../stores/auth.store';
++ Crea el archivo `src/views/DashboardView.vue`:
+```vue
+<script setup>
+    import { useRouter } from 'vue-router';
+    import { useAuthStore } from '../stores/auth.store';
 
-            const authStore = useAuthStore();
-            const router = useRouter();
+    const authStore = useAuthStore();
+    const router = useRouter();
 
-            const handleLogout = async () => {
-                await authStore.logout();
-                router.push({ name: 'login' });
-            };
-        </script>
+    const handleLogout = async () => {
+        await authStore.logout();
+        router.push({ name: 'login' });
+    };
+</script>
 
-        <template>
-            <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
-                <!-- Navbar -->
-                <header class="bg-slate-800 border-b border-slate-700 py-4 px-6 flex justify-between items-center">
-                    <h1 class="text-xl font-bold text-emerald-400">Starter App Dashboard</h1>
-                    <div class="flex items-center gap-4">
-                        <span class="text-sm text-slate-300">{{ authStore.user?.name }}</span>
-                        <button
-                            @click="handleLogout"
-                            class="px-3 py-1.5 bg-red-600/80 hover:bg-red-500 text-sm font-medium rounded-lg transition-colors cursor-pointer"
-                        >
-                            Cerrar Sesión
-                        </button>
-                    </div>
-                </header>
-
-                <!-- Main Content -->
-                <main class="flex-1 p-6 max-w-4xl mx-auto w-full">
-                    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-lg">
-                        <h2 class="text-lg font-semibold text-emerald-400 mb-4">Perfil de Usuario Autenticado</h2>
-                        
-                        <div class="space-y-3 text-slate-300">
-                            <p><strong class="text-slate-100">ID:</strong> {{ authStore.user?.id }}</p>
-                            <p><strong class="text-slate-100">Nombre:</strong> {{ authStore.user?.name }}</p>
-                            <p><strong class="text-slate-100">Correo:</strong> {{ authStore.user?.email }}</p>
-                            <p>
-                                <strong class="text-slate-100">Roles:</strong>
-                                    <span
-                                        v-for="role in authStore.userRoles"
-                                        :key="role"
-                                        class="ml-2 inline-block px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold rounded"
-                                    >
-                                        {{ role }}
-                                </span>
-                            </p>
-                        </div>
-                    </div>
-                </main>
+<template>
+    <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
+        <!-- Navbar -->
+        <header class="bg-slate-800 border-b border-slate-700 py-4 px-6 flex justify-between items-center">
+            <h1 class="text-xl font-bold text-emerald-400">Starter App Dashboard</h1>
+            <div class="flex items-center gap-4">
+                <span class="text-sm text-slate-300">{{ authStore.user?.name }}</span>
+                <router-link 
+                    v-if="authStore.userRoles.includes('SUPER_ADMIN')" 
+                    to="/admin" 
+                    class="px-3 py-2 rounded-lg text-sm font-medium text-purple-400 hover:text-purple-300 hover:bg-purple-950/40 transition-all flex items-center space-x-2"
+                >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    </svg>
+                    <span>Panel Admin</span>
+                </router-link>                        
+                <button
+                    @click="handleLogout"
+                    class="px-3 py-1.5 bg-red-600/80 hover:bg-red-500 text-sm font-medium rounded-lg transition-colors cursor-pointer"
+                >
+                    Cerrar Sesión
+                </button>
             </div>
-        </template>
-        ```
+        </header>
+
+        <!-- Main Content -->
+        <main class="flex-1 p-6 max-w-4xl mx-auto w-full">
+            <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-lg">
+                <h2 class="text-lg font-semibold text-emerald-400 mb-4">Perfil de Usuario Autenticado</h2>
+                
+                <div class="space-y-3 text-slate-300">
+                    <p><strong class="text-slate-100">ID:</strong> {{ authStore.user?.id }}</p>
+                    <p><strong class="text-slate-100">Nombre:</strong> {{ authStore.user?.name }}</p>
+                    <p><strong class="text-slate-100">Correo:</strong> {{ authStore.user?.email }}</p>
+                    <p>
+                        <strong class="text-slate-100">Roles:</strong>
+                            <span
+                                v-for="role in authStore.userRoles"
+                                :key="role"
+                                class="ml-2 inline-block px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold rounded"
+                            >
+                                {{ role }}
+                        </span>
+                    </p>
+                </div>
+            </div>
+        </main>
+    </div>
+</template>
+```
 
 4. Limpiar `src/App.vue`:
     + Abre `src/App.vue` y reemplaza todo su contenido con esto:
@@ -1690,39 +1716,39 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
 
 6. Crear Vista 404 (`src/views/NotFoundView.vue`)
     + Crea el archivo `src/views/NotFoundView.vue`:
-```vue
-<template>
-    <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center justify-center p-4 text-center">
-        <h1 class="text-8xl font-black text-emerald-500 mb-2">404</h1>
-        <h2 class="text-2xl font-bold mb-4">Página no encontrada</h2>
-        <p class="text-slate-400 mb-6 max-w-md">
-            La ruta a la que intentas acceder no existe o ha sido movida a otro lugar.
-        </p>
-        <router-link
-            to="/"
-            class="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-emerald-400 font-medium transition-colors"
-        >
-            Volver al Inicio
-        </router-link>
-    </div>
-</template>
-```
-
+        ```vue
+        <template>
+            <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center justify-center p-4 text-center">
+                <h1 class="text-8xl font-black text-emerald-500 mb-2">404</h1>
+                <h2 class="text-2xl font-bold mb-4">Página no encontrada</h2>
+                <p class="text-slate-400 mb-6 max-w-md">
+                    La ruta a la que intentas acceder no existe o ha sido movida a otro lugar.
+                </p>
+                <router-link
+                    to="/"
+                    class="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-emerald-400 font-medium transition-colors"
+                >
+                    Volver al Inicio
+                </router-link>
+            </div>
+        </template>
+        ```
 7. Actualizar las rutas en `src/router/index.js`
     + Añade la ruta comodín al final del arreglo routes en `src/router/index.js`:
-```js
-import NotFoundView from '../views/NotFoundView.vue';
+        ```js
+        import NotFoundView from '../views/NotFoundView.vue';
 
-// En la lista de rutas:
-routes: [
-    { path: '/', name: 'home', component: HomeView },
-    { path: '/login', name: 'login', component: LoginView, meta: { requiresGuest: true } },
-    { path: '/register', name: 'register', component: RegisterView, meta: { requiresGuest: true } },
-    { path: '/dashboard', name: 'dashboard', component: DashboardView, meta: { requiresAuth: true } },
-    // Comodín para capturar cualquier ruta inexistente
-    { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView },
-]
-```
+        // En la lista de rutas:
+        routes: [
+            { path: '/', name: 'home', component: HomeView },
+            { path: '/login', name: 'login', component: LoginView, meta: { requiresGuest: true } },
+            { path: '/register', name: 'register', component: RegisterView, meta: { requiresGuest: true } },
+            { path: '/dashboard', name: 'dashboard', component: DashboardView, meta: { requiresAuth: true } },
+            // Comodín para capturar cualquier ruta inexistente
+            { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView },
+        ]
+        ```
+
 
 ## 🔒 Estrategia de Roles y Control de Acceso (RBAC)
 
@@ -1967,12 +1993,13 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
         ```
 5. Controlador de Administración de Usuarios (`src/controllers/admin.controller.js`): Incluye búsqueda parcial por coincidencia (search), paginación y actualización de roles:
     ```js
+    const bcrypt = require('bcryptjs');
     const prisma = require('../config/prisma');
 
-    // Listar usuarios con búsqueda y paginación
+    // Listar usuarios con búsqueda, paginación y ordenamiento
     const getUsers = async (req, res) => {
         try {
-            const { search = '', page = 1, limit = 10 } = req.query;
+            const { search = '', page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
             const skip = (parseInt(page) - 1) * parseInt(limit);
 
             const where = search
@@ -1984,13 +2011,21 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
             }
             : {};
 
+            // Validar campos permitidos para evitar ordenamientos inválidos
+            const allowedSortFields = ['name', 'email', 'createdAt'];
+            const validSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'createdAt';
+            const validSortOrder = ['asc', 'desc'].includes(sortOrder.toLowerCase()) ? sortOrder.toLowerCase() : 'desc';
+
             const [total, users] = await prisma.$transaction([
                 prisma.user.count({ where }),
                 prisma.user.findMany({
                     where,
                     skip,
                     take: parseInt(limit),
-                    orderBy: { createdAt: 'desc' },
+                    orderBy: [
+                        { [validSortBy]: validSortOrder },
+                        { id: 'asc' } // Criterio secundario para desempate
+                    ],
                     select: {
                         id: true,
                         name: true,
@@ -2006,7 +2041,7 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
                 }),
             ]);
 
-            // Formatear la estructura de respuesta de roles
+            // Formatear la estructura de respuesta de roles...
             const formattedUsers = users.map((u) => ({
                 ...u,
                 roles: u.roles.map((r) => r.role.name),
@@ -2063,11 +2098,68 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
         }
     };
 
-    // Actualizar información básica del usuario (Nombre y Email)
+    // CREAR USUARIO (ADMIN)
+    const createUser = async (req, res) => {
+        try {
+            const { name, email, password, role = 'USER' } = req.body;
+
+            const existingUser = await prisma.user.findUnique({ where: { email } });
+            if (existingUser) {
+                return res.status(400).json({ status: 'fail', message: 'El correo electrónico ya existe' });
+            }
+
+            // Buscar el rol solicitado (por defecto USER)
+            const roleObj = await prisma.role.findUnique({ where: { name: role } });
+            if (!roleObj) {
+                return res.status(400).json({ status: 'fail', message: `El rol ${role} no existe` });
+            }
+
+            const salt = await bcrypt.genSalt(10);
+            const passwordHash = await bcrypt.hash(password, salt);
+
+            const newUser = await prisma.user.create({
+                data: {
+                    name,
+                    email,
+                    password: passwordHash,
+                    roles: { create: { roleId: roleObj.id } },
+                },
+                select: { id: true, email: true, name: true, createdAt: true },
+            });
+
+            return res.status(201).json({ status: 'success', data: { user: newUser } });
+        } catch (error) {
+            console.error('Error al crear usuario:', error);
+            return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+        }
+    };
+
+    // ELIMINAR USUARIO (CRUD Completo)
+    const deleteUser = async (req, res) => {
+        try {
+            const { id } = req.params;
+
+            // Evitar que un Admin se elimine a sí mismo por accidente
+            if (req.user.id === id) {
+                return res.status(400).json({ status: 'fail', message: 'No puedes eliminar tu propia cuenta' });
+            }
+
+            // Eliminar relaciones de roles primero (o usar onDelete: Cascade en Prisma)
+            await prisma.userRole.deleteMany({ where: { userId: id } });
+            await prisma.user.delete({ where: { id } });
+
+            return res.status(200).json({ status: 'success', message: 'Usuario eliminado correctamente' });
+        } catch (error) {
+            console.error('Error al eliminar usuario:', error);
+            return res.status(500).json({ status: 'error', message: 'Error al eliminar el usuario' });
+        }
+    };
+
+    // Actualizar información del usuario (Nombre, Email y Contraseña opcional)
     const updateUser = async (req, res) => {
         try {
             const { id } = req.params;
-            const { name, email } = req.body;
+            const { name, email, password } = req.body;
 
             // Validar que el usuario exista
             const existingUser = await prisma.user.findUnique({ where: { id } });
@@ -2089,13 +2181,21 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
                 }
             }
 
-            // Actualizar solo nombre e email (los campos omitidos se mantienen intactos)
+            // Construir el objeto con los campos a actualizar
+            const updateData = {
+                name: name || existingUser.name,
+                email: email || existingUser.email,
+            };
+
+            // Si se envía una contraseña nueva no vacía, la encriptamos e incluimos en el update
+            if (password && password.trim() !== '') {
+                const salt = await bcrypt.genSalt(10);
+                updateData.password = await bcrypt.hash(password, salt);
+            }
+
             const updatedUser = await prisma.user.update({
                 where: { id },
-                data: {
-                    name: name || existingUser.name,
-                    email: email || existingUser.email,
-                },
+                data: updateData,
                 select: {
                     id: true,
                     name: true,
@@ -2128,27 +2228,40 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
         }
     };
 
-    module.exports = { getUsers, updateUserRoles, updateUser };
+    module.exports = { getUsers, updateUserRoles, updateUser, createUser, deleteUser };
     ```
 6. Definir Rutas en Express (`src/routes/admin.routes.js`)
     ```js
     const express = require('express');
+    const { body } = require('express-validator');
     const router = express.Router();
 
     // Importar los middlewares exportados desde auth.middleware.js
     const { authenticateJWT, authorizeRoles } = require('../middlewares/auth.middleware');
+    const validate = require('../middlewares/validate.middleware');
 
     // Importar controladores de administración
-    const { getUsers, updateUserRoles, updateUser } = require('../controllers/admin.controller');
+    //const { getUsers, updateUserRoles, updateUser } = require('../controllers/admin.controller');
+    const { getUsers,  updateUserRoles, createUser, updateUser, deleteUser } = require('../controllers/admin.controller');
 
     // Proteger todas las rutas de este router
     router.use(authenticateJWT);
     router.use(authorizeRoles('SUPER_ADMIN'));
 
-    // Rutas
+    // Validaciones para creación
+    const createUserValidation = [
+        body('name').notEmpty().withMessage('El nombre es obligatorio'),
+        body('email').isEmail().withMessage('Correo electrónico inválido'),
+        body('password').isLength({ min: 6 }).withMessage('La contraseña debe tener al menos 6 caracteres'),
+        validate,
+    ];
+
+    // Rutas | Endpoints
     router.get('/users', getUsers);
     router.put('/users/:id', updateUser);
     router.put('/users/:id/roles', updateUserRoles);
+    router.post('/users', createUserValidation, createUser);
+    router.delete('/users/:id', deleteUser);
 
     module.exports = router;
     ```
@@ -2160,8 +2273,15 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
         import api from '@/api/axios';
 
         export const adminService = {
+            // Listar usuarios con búsqueda y paginación
             async getUsers(params = {}) {
                 const response = await api.get('/admin/users', { params });
+                return response.data;
+            },
+
+            // Crear un nuevo usuario
+            async createUser(userData) {
+                const response = await api.post('/admin/users', userData);
                 return response.data;
             },
 
@@ -2171,311 +2291,104 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
                 return response.data;
             },
 
+            // Actualizar roles asignados
             async updateUserRoles(userId, roles) {
                 const response = await api.put(`/admin/users/${userId}/roles`, { roles });
                 return response.data;
             },
-        };  
+
+            // Eliminar usuario de la plataforma
+            async deleteUser(userId) {
+                const response = await api.delete(`/admin/users/${userId}`);
+                return response.data;
+            }
+        };
         ```
 2. 🎨 Crear la Vista UsersAdminView.vue (`src/views/admin/UsersAdminView.vue`)
 + Crea la carpeta src/views/admin/ si no existe y añade la vista:
 ```vue
 <template>
-    <!-- 
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"> -->
-    <div class="min-h-screen bg-slate-900 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <!-- Encabezado -->
-        <div class="md:flex md:items-center md:justify-between mb-8">
-            <div class="flex-1 min-w-0">
-                <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Gestión de Usuarios</h1>
-                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Administra los permisos y accesos de la plataforma en tiempo real.</p>                
-            </div>
-        </div>
-
-        <!-- Barra de Búsqueda y Filtros -->
-        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm rounded-2xl p-4 mb-6">
-            <div class="relative">
-                <input
-                    v-model="searchQuery"
-                    @input="handleSearch"
-                    type="text"
-                    placeholder="Buscar por nombre o correo electrónico..."
-                    class="w-full bg-slate-50 dark:bg-slate-900/50 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-600 rounded-lg px-10 py-2.5 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-shadow"
-                />
-                <svg
-                    class="w-5 h-5 text-slate-400 absolute left-3 top-3"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                >
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+    <div class="p-6 max-w-7xl mx-auto">
+        <!-- Botón de retorno al Dashboard Principal -->
+        <div class="mb-6">
+            <router-link 
+                to="/dashboard" 
+                class="inline-flex items-center space-x-2 text-sm text-slate-400 hover:text-white transition-colors group"
+            >
+                <svg class="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                 </svg>
-            </div>
+                <span>Volver al Inicio</span>
+            </router-link>
+        </div>        
+        <div class="mb-8">
+            <h1 class="text-2xl font-bold text-white">Panel de Administración</h1>
+            <p class="text-slate-400 text-sm">Gestiona la configuración global de la plataforma, accesos y permisos.</p>
         </div>
 
-        <!-- Tabla de Usuarios -->
-        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
-            <div v-if="loading" class="p-12 text-center text-slate-500 dark:text-slate-400">
-                <span class="animate-spin inline-block w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full mb-2"></span>
-                <p>Cargando usuarios...</p>
-            </div>
-
-            <div v-else-if="users.length === 0" class="p-12 text-center text-slate-500 dark:text-slate-400">
-                No se encontraron usuarios que coincidan con la búsqueda.
-            </div>
-
-            <table v-else class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead class="bg-slate-50 dark:bg-slate-900/50">
-                    <tr>
-                        <th class="px-6 py-4 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Usuario</th>
-                        <th class="px-6 py-4 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Roles Asignados</th>
-                        <th class="px-6 py-4 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Fecha Registro</th>
-                        <th class="px-6 py-4 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Acciones</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                    <tr v-for="user in users" :key="user.id" class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-                        <!-- Info Usuario -->
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <div class="flex items-center">
-                                <div class="w-10 h-10 rounded-full bg-emerald-100 dark:bg-slate-700 flex items-center justify-center font-bold text-emerald-600 dark:text-emerald-400 uppercase border border-emerald-200 dark:border-slate-600">
-                                    {{ user.name ? user.name.charAt(0) : 'U' }}
-                                </div>
-                                <div class="ml-4">
-                                    <div class="text-sm font-medium text-slate-900 dark:text-slate-200">{{ user.name }}</div>
-                                    <div class="text-sm text-slate-500 dark:text-slate-400">{{ user.email }}</div>
-                                </div>
-                            </div>
-                        </td>
-
-                        <!-- Badges de Roles -->
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <div class="flex flex-wrap gap-1.5">
-                                <span
-                                    v-for="role in user.roles"
-                                    :key="role"
-                                    :class="getRoleBadgeClass(role)"
-                                    class="px-2.5 py-0.5 rounded-full text-xs font-semibold border"
-                                >
-                                    {{ role }}
-                                </span>
-                                <span v-if="user.roles.length === 0" class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600">
-                                    Sin permisos (Guest)
-                                </span>
-                            </div>
-                        </td>
-
-                        <!-- Fecha -->
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">
-                            {{ formatDate(user.createdAt) }}
-                        </td>
-
-                        <!-- Acciones -->
-                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <button
-                                @click="openRoleModal(user)"
-                                class="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30 hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-500 dark:hover:text-white rounded-lg transition-all"
-                            >
-                                Editar Roles
-                            </button>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <!-- Paginación -->
-            <div v-if="pagination.totalPages > 1" class="px-6 py-4 bg-slate-50 dark:bg-slate-900/40 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                <span class="text-sm text-slate-500 dark:text-slate-400">
-                    Página {{ pagination.page }} de {{ pagination.totalPages }}
-                </span>
-                <div class="flex gap-2">
-                    <button
-                        :disabled="pagination.page === 1"
-                        @click="changePage(pagination.page - 1)"
-                        class="px-3 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                        Anterior
-                    </button>
-                    <button
-                        :disabled="pagination.page === pagination.totalPages"
-                        @click="changePage(pagination.page + 1)"
-                        class="px-3 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                        Siguiente
-                    </button>
+        <!-- Grid de Accesos Directos a Módulos Admin -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            
+            <!-- Módulo: Usuarios -->
+            <router-link 
+                to="/admin/users" 
+                class="group p-6 bg-slate-800/60 border border-slate-700/60 hover:border-emerald-500/50 rounded-2xl transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/5"
+            >
+                <div class="flex items-center justify-between mb-4">
+                    <div class="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl group-hover:scale-110 transition-transform">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                        </svg>
+                    </div>
+                    <span class="text-xs font-semibold px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full">Activo</span>
                 </div>
-            </div>
-        </div>
+                <h2 class="text-lg font-semibold text-white group-hover:text-emerald-400 transition-colors">Gestión de Usuarios</h2>
+                <p class="text-slate-400 text-xs mt-1">Creación, edición de datos personales, asignación de roles y eliminación.</p>
+            </router-link>
 
-        <!-- Modal de Asignación de Roles -->
-        <div v-if="selectedUser" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-black/70 backdrop-blur-sm">
-            <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
-                <h3 class="text-xl font-bold text-slate-900 dark:text-slate-100 mb-1">Gestionar Roles</h3>
-                <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                    Modificando permisos para <span class="text-emerald-600 dark:text-emerald-400 font-semibold">{{ selectedUser.name }}</span>
-                </p>
-
-                <div class="space-y-3 mb-6">
-                    <label v-for="role in availableRoles" :key="role" class="flex items-center space-x-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-emerald-300 dark:hover:border-slate-500 transition-colors">
-                        <input
-                            type="checkbox"
-                            :value="role"
-                            v-model="modalRoles"
-                            class="w-4 h-4 text-emerald-600 bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 rounded focus:ring-emerald-500"
-                        />
-                        <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ role }}</span>
-                    </label>
+            <!-- Módulo: Roles y Permisos -->
+            <router-link 
+                to="/admin/roles" 
+                class="group p-6 bg-slate-800/60 border border-slate-700/60 hover:border-purple-500/50 rounded-2xl transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/5"
+            >
+                <div class="flex items-center justify-between mb-4">
+                    <div class="p-3 bg-purple-500/10 text-purple-400 rounded-xl group-hover:scale-110 transition-transform">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                        </svg>
+                    </div>
+                    <span class="text-xs font-semibold px-2.5 py-1 bg-purple-500/10 text-purple-400 border border-purple-500/20 rounded-full">Dev / Config</span>
                 </div>
+                <h2 class="text-lg font-semibold text-white group-hover:text-purple-400 transition-colors">Roles y Permisos</h2>
+                <p class="text-slate-400 text-xs mt-1">Administración de la tabla de roles globales del sistema (CRUD de Roles).</p>
+            </router-link>
 
-                <div class="flex justify-end gap-3">
-                    <button
-                        @click="selectedUser = null"
-                        class="px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-medium rounded-xl transition-colors"
-                    >
-                        Cancelar
-                    </button>
-                    <button
-                        @click="saveUserRoles"
-                        :disabled="saving"
-                        class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-xl disabled:opacity-50 transition-colors"
-                    >
-                        {{ saving ? 'Guardando...' : 'Guardar Cambios' }}
-                    </button>
+            <!-- Módulo: Logs de Auditoría / Sistema (Sugerencia) -->
+            <div class="p-6 bg-slate-800/20 border border-slate-700/30 rounded-2xl opacity-60 cursor-not-allowed">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="p-3 bg-slate-700/30 text-slate-500 rounded-xl">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                    </div>
+                    <span class="text-xs font-semibold px-2.5 py-1 bg-slate-700/30 text-slate-500 border border-slate-600/30 rounded-full">Próximamente</span>
                 </div>
+                <h2 class="text-lg font-semibold text-slate-400">Auditoría / Logs</h2>
+                <p class="text-slate-500 text-xs mt-1">Historial de cambios críticos y acciones de los administradores.</p>
             </div>
+
         </div>
     </div>
 </template>
-
-<script setup>
-    import { ref, onMounted } from 'vue';
-    import { adminService } from '../../services/admin.service';
-
-    // --- ESTADOS GENERALES Y TABLA ---
-    const users = ref([]);
-    const loading = ref(true);
-    const saving = ref(false);
-    const searchQuery = ref('');
-    const pagination = ref({ page: 1, totalPages: 1, total: 0 });
-    let searchTimeout = null;
-
-    // --- ESTADOS PARA EDICIÓN DE ROLES ---
-    const selectedUser = ref(null);
-    const modalRoles = ref([]);
-    const availableRoles = ['SUPER_ADMIN', 'ADMIN', 'USER'];
-
-    // --- ESTADOS PARA EDICIÓN DE DATOS PERSONALES (NUEVO) ---
-    const editingUser = ref(null);
-    const userForm = ref({ name: '', email: '' });
-
-    // --- LÓGICA DE CARGA Y BÚSQUEDA ---
-    const fetchUsers = async (page = 1) => {
-        loading.value = true;
-        try {
-            const res = await adminService.getUsers({
-                search: searchQuery.value,
-                page,
-                limit: 10,
-            });
-            users.value = res.data.users;
-            pagination.value = res.data.pagination;
-        } catch (err) {
-            console.error('Error al cargar usuarios:', err);
-        } finally {
-            loading.value = false;
-        }
-    };
-
-    const handleSearch = () => {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-            fetchUsers(1);
-        }, 300);
-    };
-
-    const changePage = (newPage) => {
-        fetchUsers(newPage);
-    };
-
-    // --- LÓGICA DE ROLES ---
-    const openRoleModal = (user) => {
-        selectedUser.value = user;
-        modalRoles.value = [...user.roles];
-    };
-
-    const saveUserRoles = async () => {
-        if (!selectedUser.value) return;
-        saving.value = true;
-        try {
-            await adminService.updateUserRoles(selectedUser.value.id, modalRoles.value);
-            selectedUser.value.roles = [...modalRoles.value];
-            selectedUser.value = null;
-        } catch (err) {
-            alert('Error al guardar los roles');
-        } finally {
-            saving.value = false;
-        }
-    };
-
-    // --- LÓGICA DE DATOS PERSONALES (NUEVO) ---
-    const openEditModal = (user) => {
-        editingUser.value = user;
-        userForm.value = { name: user.name, email: user.email };
-    };
-
-    const saveUserData = async () => {
-        if (!editingUser.value) return;
-        saving.value = true;
-        try {
-            const res = await adminService.updateUser(editingUser.value.id, userForm.value);
-            
-            // Actualiza de inmediato la fila en la reactividad local de Vue
-            editingUser.value.name = res.data.user.name;
-            editingUser.value.email = res.data.user.email;
-            
-            editingUser.value = null;
-        } catch (err) {
-            alert(err.response?.data?.message || 'Error al actualizar el usuario');
-        } finally {
-            saving.value = false;
-        }
-    };
-
-    // --- UTILITIES DE FORMATO Y ESTILOS ---
-    const getRoleBadgeClass = (role) => {
-        switch (role) {
-            case 'SUPER_ADMIN':
-                return 'bg-purple-900/40 text-purple-300 border-purple-500/30';
-            case 'ADMIN':
-                return 'bg-blue-900/40 text-blue-300 border-blue-500/30';
-            default:
-                return 'bg-emerald-900/40 text-emerald-300 border-emerald-500/30';
-        }
-    };
-
-    const formatDate = (dateStr) => {
-        return new Date(dateStr).toLocaleDateString('es-ES', {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
-        });
-    };
-
-    onMounted(() => {
-        fetchUsers();
-    });   
-</script>
 ```
-3. 🛣️ Registrar la Ruta y Guard de Navegación (`src/router/index.js`)
+3. Crear vista administrativa `src/views/admin/AdminDashboardView.vue`:
+```vue
+```
+4. 🛣️ Registrar la Ruta y Guard de Navegación (`src/router/index.js`)
     + Añade la ruta en tu router asegurándote de restringir el acceso solo a usuarios con rol SUPER_ADMIN:    
         ```js
-        // En las rutas de src/router/index.js
-        {
-            path: '/admin/users',
-            name: 'admin-users',
-            component: () => import('../views/admin/UsersAdminView.vue'),
-            meta: { requiresAuth: true, requiresRole: 'SUPER_ADMIN' },
-        }
+        { path: '/admin', name: 'admin-dashboard', component: () => import('../views/admin/AdminDashboardView.vue'), meta: { requiresAuth: true, requiredRole: 'SUPER_ADMIN' } },
+        { path: '/admin/users', name: 'admin-users', component: () => import('../views/admin/UsersAdminView.vue'), meta: { requiresAuth: true, requiresRole: 'SUPER_ADMIN' }, }
         ```
     + Y actualiza el beforeEach para validar el meta requiresRole:
         ```js
@@ -2534,7 +2447,7 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
     # ==========================================
     # CONFIGURACIÓN DEL FRONTEND
     # ==========================================
-    FRONTEND_URL_PROD=https://familytree2026-frontend.vercel.app
+    FRONTEND_URL_PROD=https://familytree2026.vercel.app
     FRONTEND_URL_LOCAL_VITE=http://localhost:5173
     FRONTEND_URL_LOCAL_VUE_CLI=http://localhost:8080
     ```
@@ -2597,11 +2510,31 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
         + DATABASE_URL: postgres://<USER>.<PROJECT_REF>:<ENCODED_PASSWORD>@<POOLER_HOST>:<PORT>/<DATABASE_NAME>
         + JWT_SECRET: tu_clave_secreta_super_segura
         + PORT: 10000
-        + FRONTEND_URL_PROD: https://familytree2026-frontend.vercel.app
+        + FRONTEND_URL_PROD: https://familytree2026.vercel.app
         + FRONTEND_URL_LOCAL_VITE: http://localhost:5173
         + FRONTEND_URL_LOCAL_VUE_CLI: http://localhost:8080
     + Haz clic en Create Web Service.
     + Copia la URL pública generada (ej. [https://familytree2026-backend.onrender.com](https://familytree2026-backend.onrender.com)).
+
+### Configuración de Enrutamiento SPA en Vercel
+1. Crea un archivo llamado `vercel.json` en la raíz de tu proyecto frontend (`familytree2026-frontend/vercel.json`) con el siguiente contenido:
+    ```json
+    {
+        "rewrites": [
+            {
+                "source": "/(.*)",
+                "destination": "/index.html"
+            }
+        ]
+    }
+    ```
+2. Guarda el archivo vercel.json en la raíz de familytree2026-frontend.
+3. Sube los cambios a tu repositorio:
+    ```bash
+    git add vercel.json
+    git commit -m "fix: add vercel rewrites for SPA routing"
+    git push origin main
+    ```
 
 ### Capa de Presentación (Vercel)
 1. Creación de Cuenta:
@@ -2622,6 +2555,42 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
         + Value: https://familytree2026-backend.onrender.com/api/v1
 5. Despliegue Final:
     + Haz clic en Deploy. Tras guardar o cambiar variables de entorno, ejecuta siempre un Redeploy (sin usar Build Cache) para inyectar la URL de la API en los archivos estáticos de React/Vite.
+
+### Ejecutar seeder en producción
+1. Abre la terminal en la carpeta de tu backend (`familytree2026-backend`).
+2. Ejecuta el comando de seed pasando la cadena de conexión de producción de Supabase:
+    ```bash
+    DATABASE_URL="postgres://<USER>.<PROJECT_REF>:<ENCODED_PASSWORD>@<POOLER_HOST>:<PORT>/<DATABASE_NAME>" npx prisma db seed
+    DATABASE_URL="postgres://<USER>.<PROJECT_REF>:<ENCODED_PASSWORD>@<POOLER_HOST>:<PORT>/<DATABASE_NAME>" node src/seeders/superadmin.seeder.js
+    ```
+    + Asegúrate de reemplazar las credenciales por las reales de Supabase, tal como hiciste al aplicar las migraciones.
+
+### Subir cambios a Vercel
+1. Iniciar sesión en Vercel:
+    ```bash
+    npx vercel login
+    ```
+2. Vincular el proyecto local:
+    ```bash
+    npx vercel link
+    ```
+    + Responde Y a Set up and deploy?
+    + Elige tu scope/usuario (petrix1).
+    + Selecciona Link to existing project y elige familytree2026-frontend.
+3. Forzar el Despliegue a Producción:
+    ```bash
+    npx vercel --prod
+    ```
+
+### Cambiar el nombre del proyecto
++ Al cambiar el nombre del proyecto de `familytree2026-frontend` a `familytree2026`, Vercel actualizará la URL principal automáticamente a `familytree2026.vercel.app`.
+1. Ve a Vercel Dashboard.
+2. Entra en tu proyecto `familytree2026-frontend`.
+4. Ve a la pestaña Settings (Configuración) en la barra superior.
+5. En la sección General, busca el campo Project Name.
+6. Cámbialo de `familytree2026-frontend` a `familytree2026`.
+7. Haz clic en Save (Guardar).
+8. Actualiza la variable de entorno de CORS en Render (FRONTEND_URL_PROD en el servicio familytree2026-backend) agregando la nueva dirección [https://familytree2026.vercel.app](https://familytree2026.vercel.app).
 
 ## -------------------------
 
@@ -2654,22 +2623,25 @@ npx prisma studio --url "postgresql://dev_user:dev_password@localhost:5432/local
 ### Url
 #### Backend
 1. Home:
-    + Dev: `http://localhost:4000`
+    + Dev:  `http://localhost:4000`
     + Prod: `https://familytree2026-backend.onrender.com`
 2. Healthcheck (Comprobación de estado):
-    + Dev: `http://localhost:4000/api/v1/health`
+    + Dev:  `http://localhost:4000/api/v1/health`
     + Prod: `https://familytree2026-backend.onrender.com/api/v1/health`
 3. Endpoint de Usuario (Protegido):
-    + Dev: `http://localhost:4000/api/v1/auth/me`
+    + Dev:  `http://localhost:4000/api/v1/auth/me`
     + Prod: `https://familytree2026-backend.onrender.com/api/v1/auth/me`
 
 #### Frontend
 1. Home:
-    + `http://localhost:5173`
+    + Dev:  `http://localhost:5173`
+    + Prod: `https://familytree2026.vercel.app`
 2. Prueba de Registro:
-    + `http://localhost:5173/register`
+    + Dev:  `http://localhost:5173/register`
+    + Prod: `https://familytree2026.vercel.app/register`
 3. Prueba de Vista Protegida:
-    + `http://localhost:5173/dashboard`
+    + Dev:  `http://localhost:5173/dashboard`
+    + Prod: `https://familytree2026.vercel.app/dashboard`
 4. Prueba de Rehidratación de Sesión (Persistence):
     + Presiona F5 (Recargar página). El Navigation Guard debe ejecutar `fetchUser()`, validar el token contra el endpoint GET `/me` y mantenerte en `/dashboard` sin cerrar tu sesión.
 5. Prueba de Cierre de Sesión:
@@ -2683,6 +2655,7 @@ npx prisma studio --url "postgresql://dev_user:dev_password@localhost:5432/local
 `http://localhost:51212/`
 
 `http://localhost:5173/admin/users`
+`https://familytree2026.vercel.app/admin/users`
 
 familytree2026-backend
 familytree2026-frontend
