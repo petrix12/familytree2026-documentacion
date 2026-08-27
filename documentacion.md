@@ -1157,6 +1157,11 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
     npm install sweetalert2
     # En caso de error
     npm install sweetalert2 --legacy-peer-deps
+
+    # Hero icons for Vue.js
+    npm install @heroicons/vue
+    # En caso de error
+    npm install @heroicons/vue --legacy-peer-deps
     ```
 
 ### ⚙️ Paso 3: Configuración de Vite y Tailwind v4
@@ -1329,11 +1334,12 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
     import { createRouter, createWebHistory } from 'vue-router';
     import { useAuthStore } from '../stores/auth.store';
 
-    // Vistas
+    // Vistas públicas y estáticas
     import HomeView from '../views/HomeView.vue';
     import LoginView from '../views/LoginView.vue';
     import RegisterView from '../views/RegisterView.vue';
     import DashboardView from '../views/DashboardView.vue';
+    import NotFoundView from '../views/NotFoundView.vue';
 
     const router = createRouter({
         history: createWebHistory(import.meta.env.BASE_URL),
@@ -1570,72 +1576,73 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
         ```
 
 3. Vista Protegida del Dashboard (`src/views/DashboardView.vue`)
-+ Crea el archivo `src/views/DashboardView.vue`:
-```vue
-<script setup>
-    import { useRouter } from 'vue-router';
-    import { useAuthStore } from '../stores/auth.store';
+    + Crea el archivo `src/views/DashboardView.vue`:
+        ```vue
+        <script setup>
+            import { Cog6ToothIcon } from '@heroicons/vue/24/outline';
+            import { useRouter } from 'vue-router';
+            import { useAuthStore } from '../stores/auth.store';
 
-    const authStore = useAuthStore();
-    const router = useRouter();
+            const authStore = useAuthStore();
+            const router = useRouter();
 
-    const handleLogout = async () => {
-        await authStore.logout();
-        router.push({ name: 'login' });
-    };
-</script>
+            const handleLogout = async () => {
+                await authStore.logout();
+                router.push({ name: 'login' });
+            };
+        </script>
 
-<template>
-    <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
-        <!-- Navbar -->
-        <header class="bg-slate-800 border-b border-slate-700 py-4 px-6 flex justify-between items-center">
-            <h1 class="text-xl font-bold text-emerald-400">Starter App Dashboard</h1>
-            <div class="flex items-center gap-4">
-                <span class="text-sm text-slate-300">{{ authStore.user?.name }}</span>
-                <router-link 
-                    v-if="authStore.userRoles.includes('SUPER_ADMIN')" 
-                    to="/admin" 
-                    class="px-3 py-2 rounded-lg text-sm font-medium text-purple-400 hover:text-purple-300 hover:bg-purple-950/40 transition-all flex items-center space-x-2"
-                >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    </svg>
-                    <span>Panel Admin</span>
-                </router-link>                        
-                <button
-                    @click="handleLogout"
-                    class="px-3 py-1.5 bg-red-600/80 hover:bg-red-500 text-sm font-medium rounded-lg transition-colors cursor-pointer"
-                >
-                    Cerrar Sesión
-                </button>
+        <template>
+            <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
+                <!-- Navbar -->
+                <header class="bg-slate-800 border-b border-slate-700 py-4 px-6 flex justify-between items-center">
+                    <h1 class="text-xl font-bold text-emerald-400">Starter App Dashboard</h1>
+                    <div class="flex items-center gap-4">
+                        <span class="text-sm text-slate-300">{{ authStore.user?.name }}</span>
+                        
+                        <router-link 
+                            v-if="authStore.userRoles.includes('SUPER_ADMIN')" 
+                            to="/admin" 
+                            class="px-3 py-2 rounded-lg text-sm font-medium text-purple-400 hover:text-purple-300 hover:bg-purple-950/40 transition-all flex items-center space-x-2"
+                        >
+                            <Cog6ToothIcon class="w-4 h-4" />
+                            <span>Panel Admin</span>
+                        </router-link>
+
+                        <button
+                            @click="handleLogout"
+                            class="px-3 py-1.5 bg-red-600/80 hover:bg-red-500 text-sm font-medium rounded-lg transition-colors cursor-pointer"
+                        >
+                            Cerrar Sesión
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Main Content -->
+                <main class="flex-1 p-6 max-w-4xl mx-auto w-full">
+                    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-lg">
+                        <h2 class="text-lg font-semibold text-emerald-400 mb-4">Perfil de Usuario Autenticado</h2>
+                        
+                        <div class="space-y-3 text-slate-300">
+                            <p><strong class="text-slate-100">ID:</strong> {{ authStore.user?.id }}</p>
+                            <p><strong class="text-slate-100">Nombre:</strong> {{ authStore.user?.name }}</p>
+                            <p><strong class="text-slate-100">Correo:</strong> {{ authStore.user?.email }}</p>
+                            <p>
+                                <strong class="text-slate-100">Roles:</strong>
+                                    <span
+                                        v-for="role in authStore.userRoles"
+                                        :key="role"
+                                        class="ml-2 inline-block px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold rounded"
+                                    >
+                                        {{ role }}
+                                </span>
+                            </p>
+                        </div>
+                    </div>
+                </main>
             </div>
-        </header>
-
-        <!-- Main Content -->
-        <main class="flex-1 p-6 max-w-4xl mx-auto w-full">
-            <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-lg">
-                <h2 class="text-lg font-semibold text-emerald-400 mb-4">Perfil de Usuario Autenticado</h2>
-                
-                <div class="space-y-3 text-slate-300">
-                    <p><strong class="text-slate-100">ID:</strong> {{ authStore.user?.id }}</p>
-                    <p><strong class="text-slate-100">Nombre:</strong> {{ authStore.user?.name }}</p>
-                    <p><strong class="text-slate-100">Correo:</strong> {{ authStore.user?.email }}</p>
-                    <p>
-                        <strong class="text-slate-100">Roles:</strong>
-                            <span
-                                v-for="role in authStore.userRoles"
-                                :key="role"
-                                class="ml-2 inline-block px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold rounded"
-                            >
-                                {{ role }}
-                        </span>
-                    </p>
-                </div>
-            </div>
-        </main>
-    </div>
-</template>
-```
+        </template>
+        ```
 
 4. Limpiar `src/App.vue`:
     + Abre `src/App.vue` y reemplaza todo su contenido con esto:
@@ -1913,7 +1920,8 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
     node src/seeders/superadmin.seeder.js
     ```
 
-## Controlador para administración de usuarios (Backend)
+## Panel Administrativo
+### Controlador para administración de usuarios (Backend)
 1. Seeder de Usuarios Falsos (Estilo Laravel)
     + Instala la librería de generación de datos falsos en el backend:
         ```bash
@@ -2266,7 +2274,7 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
     module.exports = router;
     ```
 
-## CRUD usuarios Frontend
+### CRUD usuarios Frontend
 1. 📡 Crear el servicio de API (`src/services/admin.service.js`)
     + Crea este archivo para encapsular las peticiones HTTP de administración:
         ```js
@@ -2305,90 +2313,1777 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
         };
         ```
 2. 🎨 Crear la Vista UsersAdminView.vue (`src/views/admin/UsersAdminView.vue`)
-+ Crea la carpeta src/views/admin/ si no existe y añade la vista:
-```vue
-<template>
-    <div class="p-6 max-w-7xl mx-auto">
-        <!-- Botón de retorno al Dashboard Principal -->
-        <div class="mb-6">
-            <router-link 
-                to="/dashboard" 
-                class="inline-flex items-center space-x-2 text-sm text-slate-400 hover:text-white transition-colors group"
-            >
-                <svg class="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-                </svg>
-                <span>Volver al Inicio</span>
-            </router-link>
-        </div>        
-        <div class="mb-8">
-            <h1 class="text-2xl font-bold text-white">Panel de Administración</h1>
-            <p class="text-slate-400 text-sm">Gestiona la configuración global de la plataforma, accesos y permisos.</p>
-        </div>
+    + Crea la carpeta src/views/admin/ si no existe y añade la vista:
+        ```vue
+        <template>
+            <div class="min-h-screen bg-slate-900 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <!-- Botón de retorno al Panel Admin -->
+                <div class="mb-6">
+                    <router-link 
+                        to="/admin" 
+                        class="inline-flex items-center space-x-2 text-sm text-emerald-400 hover:text-emerald-300 transition-colors group"
+                    >
+                        <ChevronLeftIcon class="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" />
+                        <span>Volver al Panel Admin</span>
+                    </router-link>
+                </div>
+                <!-- Encabezado -->
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold text-white">Gestión de Usuarios</h1>
+                        <p class="text-slate-400 text-sm mt-1">Administra los permisos y accesos de la plataforma en tiempo real.</p>                
+                    </div>
+                    <button
+                        @click="openUserModal(null)"
+                        class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-xl transition-colors shadow-lg shadow-emerald-600/30"
+                    >
+                        <PlusIcon class="w-5 h-5" />
+                        Nuevo Usuario
+                    </button>           
+                </div>
 
-        <!-- Grid de Accesos Directos a Módulos Admin -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Barra de Búsqueda y Filtros -->
+                <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm rounded-2xl p-4 mb-6">
+                    <div class="relative">
+                        <input
+                            v-model="searchQuery"
+                            @input="handleSearch"
+                            type="text"
+                            placeholder="Buscar por nombre o correo electrónico..."
+                            class="w-full bg-slate-50 dark:bg-slate-900/50 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-600 rounded-lg px-10 py-2.5 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-shadow"
+                        />
+                        <MagnifyingGlassIcon class="w-5 h-5 text-slate-400 absolute left-3 top-3" />
+                    </div>
+                </div>
+
+                <!-- Tabla de Usuarios -->
+                <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
+                    <div v-if="loading" class="p-12 text-center text-slate-500 dark:text-slate-400">
+                        <span class="animate-spin inline-block w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full mb-2"></span>
+                        <p>Cargando usuarios...</p>
+                    </div>
+
+                    <div v-else-if="users.length === 0" class="p-12 text-center text-slate-500 dark:text-slate-400">
+                        No se encontraron usuarios que coincidan con la búsqueda.
+                    </div>
+
+                    <div v-else class="overflow-x-auto w-full">
+                        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                            <thead>
+                                <tr class="border-b border-slate-700/60 bg-slate-800/40 text-slate-400 text-xs font-semibold uppercase tracking-wider select-none">                            
+                                    <!-- Columna Nombre (Usuario) -->
+                                    <th @click="handleSort('name')" class="px-6 py-3 text-left cursor-pointer hover:text-white transition-colors">
+                                        <div class="flex items-center space-x-1">
+                                            <span>Usuario</span>
+                                            <span class="inline-flex flex-col text-[10px] leading-none">
+                                                <span :class="sortBy === 'name' && sortOrder === 'asc' ? 'text-emerald-400' : 'text-slate-600'">▲</span>
+                                                <span :class="sortBy === 'name' && sortOrder === 'desc' ? 'text-emerald-400' : 'text-slate-600'">▼</span>
+                                            </span>
+                                        </div>
+                                    </th>
+
+                                    <!-- Columna Roles (No ordenable) -->
+                                    <th class="px-6 py-3 text-left">Roles Asignados</th>
+
+                                    <!-- Columna Fecha Registro -->
+                                    <th @click="handleSort('createdAt')" class="px-6 py-3 text-left cursor-pointer hover:text-white transition-colors">
+                                        <div class="flex items-center space-x-1">
+                                            <span>Fecha Registro</span>
+                                            <span class="inline-flex flex-col text-[10px] leading-none">
+                                                <span :class="sortBy === 'createdAt' && sortOrder === 'asc' ? 'text-emerald-400' : 'text-slate-600'">▲</span>
+                                                <span :class="sortBy === 'createdAt' && sortOrder === 'desc' ? 'text-emerald-400' : 'text-slate-600'">▼</span>
+                                            </span>
+                                        </div>
+                                    </th>
+
+                                    <th class="px-6 py-3 text-right">Acciones</th>
+                                </tr>
+                            </thead>                    
+                            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                                <tr v-for="user in users" :key="user.id" class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                                    <!-- Info Usuario -->
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="flex items-center">
+                                            <div class="w-10 h-10 rounded-full bg-emerald-100 dark:bg-slate-700 flex items-center justify-center font-bold text-emerald-600 dark:text-emerald-400 uppercase border border-emerald-200 dark:border-slate-600">
+                                                {{ user.name ? user.name.charAt(0) : 'U' }}
+                                            </div>
+                                            <div class="ml-4">
+                                                <div class="text-sm font-medium text-slate-900 dark:text-slate-200">{{ user.name }}</div>
+                                                <div class="text-sm text-slate-500 dark:text-slate-400">{{ user.email }}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+
+                                    <!-- Badges de Roles -->
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="flex flex-wrap gap-1.5">
+                                            <span
+                                                v-for="role in user.roles"
+                                                :key="role"
+                                                :class="getRoleBadgeClass(role)"
+                                                class="px-2.5 py-0.5 rounded-full text-xs font-semibold border"
+                                            >
+                                                {{ role }}
+                                            </span>
+                                            <span v-if="user.roles.length === 0" class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600">
+                                                Sin permisos (Guest)
+                                            </span>
+                                        </div>
+                                    </td>
+
+                                    <!-- Fecha -->
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">
+                                        {{ formatDate(user.createdAt) }}
+                                    </td>
+
+                                    <!-- Acciones -->
+                                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        <div class="inline-flex items-center justify-end space-x-2">
+                                            <button
+                                                @click="openUserModal(user)"
+                                                title="Editar datos del usuario"
+                                                class="h-9 w-9 inline-flex items-center justify-center bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-600 hover:text-slate-900 dark:hover:text-white rounded-lg transition-all"
+                                            >
+                                                <PencilSquareIcon class="w-4 h-4" />
+                                            </button>
+
+                                            <button
+                                                @click="confirmDeleteUser(user)"
+                                                title="Eliminar usuario"
+                                                class="h-9 w-9 inline-flex items-center justify-center bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-500/30 hover:bg-red-600 hover:text-white dark:hover:bg-red-500 dark:hover:text-white rounded-lg transition-all"
+                                            >
+                                                <TrashIcon class="w-4 h-4" />
+                                            </button>
+
+                                            <button
+                                                @click="openRoleModal(user)"
+                                                title="Editar Roles"
+                                                class="h-9 px-3 inline-flex items-center justify-center bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30 hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-500 dark:hover:text-white rounded-lg transition-all"
+                                            >
+                                                <UserGroupIcon class="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Paginación -->
+                    <div v-if="pagination.totalPages > 1" class="px-6 py-4 bg-slate-50 dark:bg-slate-900/40 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                        <span class="text-sm text-slate-500 dark:text-slate-400">
+                            Página {{ pagination.page }} de {{ pagination.totalPages }}
+                        </span>
+                        <div class="flex gap-2">
+                            <button
+                                :disabled="pagination.page === 1"
+                                @click="changePage(pagination.page - 1)"
+                                class="px-3 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                Anterior
+                            </button>
+                            <button
+                                :disabled="pagination.page === pagination.totalPages"
+                                @click="changePage(pagination.page + 1)"
+                                class="px-3 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                Siguiente
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal de Asignación de Roles -->
+                <div v-if="selectedUser" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-black/70 backdrop-blur-sm">
+                    <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+                        <h3 class="text-xl font-bold text-slate-900 dark:text-slate-100 mb-1">Gestionar Roles</h3>
+                        <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                            Modificando permisos para <span class="text-emerald-600 dark:text-emerald-400 font-semibold">{{ selectedUser.name }}</span>
+                        </p>
+
+                        <div class="space-y-3 mb-6">
+                            <label v-for="role in availableRoles" :key="role" class="flex items-center space-x-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-emerald-300 dark:hover:border-slate-500 transition-colors">
+                                <input
+                                    type="checkbox"
+                                    :value="role"
+                                    v-model="modalRoles"
+                                    class="w-4 h-4 text-emerald-600 bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 rounded focus:ring-emerald-500"
+                                />
+                                <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ role }}</span>
+                            </label>
+                        </div>
+
+                        <div class="flex justify-end gap-3">
+                            <button
+                                @click="selectedUser = null"
+                                class="px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-medium rounded-xl transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                @click="saveUserRoles"
+                                :disabled="saving"
+                                class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-xl disabled:opacity-50 transition-colors"
+                            >
+                                {{ saving ? 'Guardando...' : 'Guardar Cambios' }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Modal de Usuario (Creación / Edición) -->
+                <div v-if="isUserModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 dark:bg-black/70 backdrop-blur-sm">
+                    <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+                        <h3 class="text-xl font-bold text-slate-900 dark:text-slate-100 mb-1">
+                            {{ targetUser ? 'Editar Usuario' : 'Nuevo Usuario' }}
+                        </h3>
+                        <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                            {{ targetUser ? `Modificando los datos de ${targetUser.name}` : 'Ingresa la información del nuevo usuario' }}
+                        </p>
+
+                        <form @submit.prevent="saveUserData" class="space-y-4">
+                            <!-- Nombre -->
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 mb-1">Nombre Completo</label>
+                                <input
+                                    v-model="userForm.name"
+                                    type="text"
+                                    required
+                                    class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                />
+                            </div>
+
+                            <!-- Email -->
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 mb-1">Correo Electrónico</label>
+                                <input
+                                    v-model="userForm.email"
+                                    type="email"
+                                    required
+                                    class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                />
+                            </div>
+
+                            <!-- Contraseña -->
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 mb-1">
+                                    Contraseña {{ targetUser ? '(Opcional / Dejar en blanco)' : '' }}
+                                </label>
+                                <input
+                                    v-model="userForm.password"
+                                    type="password"
+                                    :required="!targetUser"
+                                    placeholder="••••••••"
+                                    class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                />
+                            </div>
+
+                            <!-- Botones -->
+                            <div class="flex justify-end gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    @click="isUserModalOpen = false"
+                                    class="px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-medium rounded-xl transition-colors"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="submit"
+                                    :disabled="saving"
+                                    class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-xl disabled:opacity-50 transition-colors"
+                                >
+                                    {{ saving ? 'Guardando...' : (targetUser ? 'Guardar Cambios' : 'Crear Usuario') }}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>        
+            </div>
+        </template>
+
+        <script setup>
+            import { TrashIcon, UserGroupIcon, PencilSquareIcon, PlusIcon, ChevronLeftIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/outline';
+            import Swal from 'sweetalert2';
+            import { ref, onMounted } from 'vue';
+            import { adminService } from '../../services/admin.service';
+
+            // --- ESTADOS GENERALES Y TABLA ---
+            const users = ref([]);
+            const loading = ref(true);
+            const saving = ref(false);
+            const searchQuery = ref('');
+            const pagination = ref({ page: 1, totalPages: 1, total: 0 });
+            let searchTimeout = null;
+
+            // --- ESTADOS PARA EDICIÓN DE ROLES ---
+            const selectedUser = ref(null);
+            const modalRoles = ref([]);
+            const availableRoles = ['SUPER_ADMIN', 'ADMIN', 'USER'];
+
+            // --- ESTADOS PARA CREACIÓN / EDICIÓN COMPLETA DE USUARIO ---
+            const isUserModalOpen = ref(false);
+            const targetUser = ref(null);
+            const userForm = ref({ name: '', email: '', password: '' });
+
+            // --- LÓGICA DE CARGA Y BÚSQUEDA ---
+            // Estados de ordenamiento
+            const sortBy = ref('createdAt');
+            const sortOrder = ref('desc');
+
+            const handleSort = (field) => {
+                if (sortBy.value === field) {
+                    // Alternar entre ascendente y descendente
+                    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc';
+                } else {
+                    sortBy.value = field;
+                    sortOrder.value = 'asc';
+                }
+                fetchUsers(1); // Volver a la primera página al reordenar
+            };
+
+            // Actualiza tu fetchUsers para enviar estos parámetros
+            const fetchUsers = async (page = 1) => {
+                loading.value = true;
+                try {
+                    const res = await adminService.getUsers({
+                        search: searchQuery.value,
+                        page,
+                        limit: 10,
+                        sortBy: sortBy.value,
+                        sortOrder: sortOrder.value
+                    });
+                    users.value = res.data.users;
+                    pagination.value = res.data.pagination;
+                } catch (err) {
+                    console.error('Error al cargar usuarios:', err);
+                } finally {
+                    loading.value = false;
+                }
+            };      
+
+            const handleSearch = () => {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    fetchUsers(1);
+                }, 300);
+            };
+
+            const changePage = (newPage) => {
+                fetchUsers(newPage);
+            };
+
+            // --- LÓGICA DE ROLES ---
+            const openRoleModal = (user) => {
+                selectedUser.value = user;
+                modalRoles.value = [...user.roles];
+            };
+
+            const saveUserRoles = async () => {
+                if (!selectedUser.value) return;
+                saving.value = true;
+                try {
+                    await adminService.updateUserRoles(selectedUser.value.id, modalRoles.value);
+                    selectedUser.value.roles = [...modalRoles.value];
+                    selectedUser.value = null;
+                } catch (err) {
+                    alert('Error al guardar los roles');
+                } finally {
+                    saving.value = false;
+                }
+            };
+
+            // --- LÓGICA DE CREACIÓN / EDICIÓN DE USUARIO ---
+            const openUserModal = (user = null) => {
+                targetUser.value = user;
+                if (user) {
+                    // Edición
+                    userForm.value = { name: user.name, email: user.email, password: '' };
+                } else {
+                    // Creación
+                    userForm.value = { name: '', email: '', password: '' };
+                }
+                isUserModalOpen.value = true;
+            };
+
+            const saveUserData = async () => {
+                saving.value = true;
+                try {
+                    if (targetUser.value) {
+                        // Actualización (si la password viene vacía, el backend no la actualiza)
+                        const payload = { ...userForm.value };
+                        if (!payload.password) delete payload.password;
+
+                        const res = await adminService.updateUser(targetUser.value.id, payload);
+                        
+                        // Actualiza en vivo la lista local
+                        targetUser.value.name = res.data.user.name;
+                        targetUser.value.email = res.data.user.email;
+                    } else {
+                        // Creación de nuevo usuario
+                        await adminService.createUser(userForm.value);
+                        await fetchUsers(1); // Recarga la primera página
+                    }
+                    isUserModalOpen.value = false;
+                } catch (err) {
+                    alert(err.response?.data?.message || 'Error al procesar la solicitud');
+                } finally {
+                    saving.value = false;
+                }
+            };
+
+            // --- LÓGICA DE ELIMINACIÓN CON SWEETALERT2 ---
+            const confirmDeleteUser = async (user) => {
+                const result = await Swal.fire({
+                    title: '¿Eliminar usuario?',
+                    html: `Estás a punto de eliminar a <strong>${user.name}</strong>.<br><span class="text-xs text-slate-400">Esta acción no se puede deshacer.</span>`,
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#ef4444', // Red-500 de Tailwind
+                    cancelButtonColor: '#64748b',  // Slate-500 de Tailwind
+                    confirmButtonText: 'Sí, eliminar',
+                    cancelButtonText: 'Cancelar',
+                    background: '#1e293b',         // Slate-800 de Tailwind (Coincide con tu tema)
+                    color: '#f8fafc',              // Slate-50 de Tailwind
+                    customClass: {
+                        popup: 'rounded-xl border border-slate-700 shadow-2xl',
+                        confirmButton: 'px-4 py-2 rounded-lg font-medium text-sm',
+                        cancelButton: 'px-4 py-2 rounded-lg font-medium text-sm'
+                    }
+                });
+
+                if (result.isConfirmed) {
+                    try {
+                        await adminService.deleteUser(user.id);
+                        
+                        // Notificación flotante de éxito
+                        Swal.fire({
+                            title: '¡Eliminado!',
+                            text: 'El usuario ha sido eliminado correctamente.',
+                            icon: 'success',
+                            timer: 2000,
+                            showConfirmButton: false,
+                            background: '#1e293b',
+                            color: '#f8fafc',
+                            customClass: {
+                                popup: 'rounded-xl border border-slate-700'
+                            }
+                        });
+
+                        await fetchUsers(pagination.value.page);
+                    } catch (err) {
+                        Swal.fire({
+                            title: 'Error',
+                            text: err.response?.data?.message || 'Error al intentar eliminar el usuario',
+                            icon: 'error',
+                            background: '#1e293b',
+                            color: '#f8fafc',
+                            customClass: {
+                                popup: 'rounded-xl border border-slate-700'
+                            }
+                        });
+                    }
+                }
+            };    
+
+            // --- UTILITIES DE FORMATO Y ESTILOS ---
+            const getRoleBadgeClass = (role) => {
+                switch (role) {
+                    case 'SUPER_ADMIN':
+                        return 'bg-purple-900/40 text-purple-300 border-purple-500/30';
+                    case 'ADMIN':
+                        return 'bg-blue-900/40 text-blue-300 border-blue-500/30';
+                    default:
+                        return 'bg-emerald-900/40 text-emerald-300 border-emerald-500/30';
+                }
+            };
+
+            const formatDate = (dateStr) => {
+                if (!dateStr) return 'N/A';
+                return new Date(dateStr).toLocaleDateString('es-ES', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                });
+            };
+
+            onMounted(() => {
+                fetchUsers();
+            });   
+        </script>
+        ```
+
+### Roles y permisos
+#### PARTE 1: BASE DE DATOS (Prisma Schema & Seed)
+1. Actualizar `prisma/schema.prisma`
+    + En tu archivo `familytree2026-backend/prisma/schema.prisma`, añade los modelos Permission y RolePermission, y vincula las relaciones correspondientes, reemplaza todo por este código:
+    ```prisma
+    // This is your Prisma schema file,
+    // learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+    // Get a free hosted Postgres database in seconds: `npx create-db`
+
+    generator client {
+        provider = "prisma-client-js"
+    }
+
+    datasource db {
+        provider = "postgresql"
+    }
+
+    // Modelo de Usuario
+    model User {
+        id        String     @id @default(uuid())
+        name      String
+        email     String     @unique
+        password  String
+        isActive  Boolean    @default(true)
+        avatarUrl String?
+        createdAt DateTime   @default(now())
+        updatedAt DateTime   @updatedAt
+        roles     UserRole[]
+
+        @@map("users")
+    }
+
+    // Modelo de Rol
+    model Role {
+        id          String           @id @default(uuid())
+        name        String           @unique
+        description String?
+        createdAt   DateTime         @default(now())
+        updatedAt   DateTime         @default(now()) @updatedAt
+        users       UserRole[]
+        permissions RolePermission[]
+
+        @@map("roles")
+    }
+
+    // Modelo de Permission
+    model Permission {
+        id          String           @id @default(uuid())
+        action      String           @unique // Ej: "users:read", "users:write"
+        module      String           // Ej: "users", "roles", "system"
+        description String?
+        createdAt   DateTime         @default(now())
+        roles       RolePermission[]
+
+        @@map("permissions")
+    }
+
+    // Tabla Pivote: Relación M:N entre Role y Permission
+    model RolePermission {
+        roleId       String
+        permissionId String
+        assignedAt   DateTime   @default(now())
+        role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+        permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+        @@id([roleId, permissionId])
+        @@map("role_permissions")
+    }
+
+    // Tabla Intermedia para Relación N:M
+    model UserRole {
+        userId String
+        roleId String
+        assignedAt DateTime @default(now())
+        user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+        role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+        @@id([userId, roleId])
+        @@map("user_roles")
+    }
+    ```
+2. Ejecuta la migración en la terminal de tu backend:
+    ```bash
+    npx prisma migrate dev --name add_permissions_and_role_permissions
+    ```
+3. Poblar el Catálogo de Permisos (`prisma/seed.js`)
+    + Actualiza tu script de seed (`familytree2026-backend/prisma/seed.js`) para insertar el catálogo de permisos estáticos del sistema:
+        ```js
+        const { PrismaClient } = require('@prisma/client');
+        const prisma = new PrismaClient();
+
+        async function main() {
+            const permissions = [
+                // Módulo de Usuarios
+                { action: 'users:read', module: 'users', description: 'Permite ver el listado y detalle de usuarios' },
+                { action: 'users:create', module: 'users', description: 'Permite registrar nuevos usuarios' },
+                { action: 'users:update', module: 'users', description: 'Permite editar datos de usuarios existentes' },
+                { action: 'users:delete', module: 'users', description: 'Permite eliminar usuarios' },
+                
+                // Módulo de Roles y Permisos
+                { action: 'roles:read', module: 'roles', description: 'Permite ver la lista de roles y sus permisos' },
+                { action: 'roles:create', module: 'roles', description: 'Permite crear nuevos roles' },
+                { action: 'roles:update', module: 'roles', description: 'Permite modificar roles y asignar permisos' },
+                { action: 'roles:delete', module: 'roles', description: 'Permite eliminar roles' },
+            ];
+
+            for (const perm of permissions) {
+                await prisma.permission.upsert({
+                    where: { action: perm.action },
+                    update: { description: perm.description, module: perm.module },
+                    create: perm,
+                });
+            }
+
+            console.log('✅ Catálogo de permisos inicializado con éxito.');
+        }
+
+        main()
+            .catch((e) => {
+                console.error(e);
+                process.exit(1);
+            })
+            .finally(async () => {
+                await prisma.$disconnect();
+            });
+        ```
+4. Regenerar el cliente y ejecuta el seed:
+    ```bash
+    npx prisma generate
+    npx prisma db seed
+    ```
+
+#### PARTE 2: BACKEND (Controladores, Rutas y Middleware)
+1. Middleware de Permisos (`src/middlewares/auth.middleware.js`)
+    + Crea un middleware dinámico `checkPermission` que verifique si el usuario o sus roles tienen asignado el permiso requerido (el `SUPER_ADMIN` se salta esta validación y tiene acceso total automático)
+        ```js
+        const jwt = require('jsonwebtoken');
+        const prisma = require('../config/prisma');
+        // ...
+        // Middleware para verificar si el usuario posee un permiso específico
+        const checkPermission = (requiredPermission) => {
+            return async (req, res, next) => {
+                try {
+                    const userId = req.user.id;
+
+                    // Consultar los roles del usuario incluyendo sus permisos
+                    const userWithRoles = await prisma.user.findUnique({
+                        where: { id: userId },
+                        include: {
+                            roles: {
+                                include: {
+                                    role: {
+                                        include: {
+                                            permissions: {
+                                                include: { permission: true }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    if (!userWithRoles) {
+                        return res.status(401).json({ status: 'fail', message: 'Usuario no autenticado' });
+                    }
+
+                    // Extraer nombres de roles
+                    const userRoleNames = userWithRoles.roles.map(ur => ur.role.name);
+
+                    // SUPER_ADMIN tiene acceso global a todo
+                    if (userRoleNames.includes('SUPER_ADMIN')) {
+                        return next();
+                    }
+
+                    // Extraer todas las acciones permitidas de todos sus roles
+                    const userPermissions = new Set();
+                    userWithRoles.roles.forEach(ur => {
+                        ur.role.permissions.forEach(rp => {
+                            userPermissions.add(rp.permission.action);
+                        });
+                    });
+
+                    if (!userPermissions.has(requiredPermission)) {
+                        return res.status(403).json({
+                            status: 'fail',
+                            message: `No tienes el permiso necesario (${requiredPermission}) para realizar esta acción`,
+                        });
+                    }
+
+                    next();
+                } catch (error) {
+                    console.error('Error en verificación de permisos:', error);
+                    return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+                }
+            };
+        };
+
+        module.exports = { checkPermission };
+        ```
+2. Controlador de Roles (`src/controllers/roles.controller.js`)
+    + Crea el archivo `familytree2026-backend/src/controllers/roles.controller.js`:
+        ```js
+        const prisma = require('../config/prisma');
+
+        // Listar todos los roles con sus permisos asignados
+        const getRoles = async (req, res) => {
+            try {
+                const roles = await prisma.role.findMany({
+                    include: {
+                        permissions: {
+                            include: { permission: true }
+                        },
+                        _count: { select: { users: true } } // Cantidad de usuarios con este rol
+                    },
+                    orderBy: { name: 'asc' }
+                });
+
+                const formattedRoles = roles.map(r => ({
+                    id: r.id,
+                    name: r.name,
+                    description: r.description,
+                    userCount: r._count.users,
+                    permissions: r.permissions.map(p => p.permission.action),
+                    createdAt: r.createdAt
+                }));
+
+                return res.status(200).json({ status: 'success', data: { roles: formattedRoles } });
+            } catch (error) {
+                console.error('Error al obtener roles:', error);
+                return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+            }
+        };
+
+        // Listar todo el catálogo de permisos disponibles (agrupados por módulo)
+        const getPermissions = async (req, res) => {
+            try {
+                const permissions = await prisma.permission.findMany({
+                    orderBy: [{ module: 'asc' }, { action: 'asc' }]
+                });
+
+                return res.status(200).json({ status: 'success', data: { permissions } });
+            } catch (error) {
+                console.error('Error al obtener permisos:', error);
+                return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+            }
+        };
+
+        // Crear un nuevo rol con permisos asociados
+        const createRole = async (req, res) => {
+            try {
+                const { name, description, permissions = [] } = req.body;
+
+                if (!name || name.trim() === '') {
+                    return res.status(400).json({ status: 'fail', message: 'El nombre del rol es obligatorio' });
+                }
+
+                const formattedName = name.trim().toUpperCase();
+
+                // Verificar unicidad
+                const existingRole = await prisma.role.findUnique({ where: { name: formattedName } });
+                if (existingRole) {
+                    return res.status(400).json({ status: 'fail', message: 'El nombre del rol ya existe' });
+                }
+
+                // Buscar IDs de los permisos enviados
+                const dbPermissions = await prisma.permission.findMany({
+                    where: { action: { in: permissions } }
+                });
+
+                const newRole = await prisma.role.create({
+                    data: {
+                        name: formattedName,
+                        description,
+                        permissions: {
+                            create: dbPermissions.map(p => ({ permissionId: p.id }))
+                        }
+                    }
+                });
+
+                return res.status(201).json({
+                    status: 'success',
+                    message: 'Rol creado exitosamente',
+                    data: { role: newRole }
+                });
+            } catch (error) {
+                console.error('Error al crear rol:', error);
+                return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+            }
+        };
+
+        // Actualizar rol y sincronizar permisos
+        const updateRole = async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { name, description, permissions = [] } = req.body;
+
+                const existingRole = await prisma.role.findUnique({ where: { id } });
+                if (!existingRole) {
+                    return res.status(404).json({ status: 'fail', message: 'Rol no encontrado' });
+                }
+
+                // Proteger el rol SUPER_ADMIN de cambios de nombre
+                if (existingRole.name === 'SUPER_ADMIN' && name && name.toUpperCase() !== 'SUPER_ADMIN') {
+                    return res.status(400).json({ status: 'fail', message: 'No se puede renombrar el rol SUPER_ADMIN' });
+                }
+
+                const formattedName = name ? name.trim().toUpperCase() : existingRole.name;
+
+                // Obtener los permisos válidos
+                const dbPermissions = await prisma.permission.findMany({
+                    where: { action: { in: permissions } }
+                });
+
+                // Transacción: eliminar permisos anteriores y crear los nuevos
+                await prisma.$transaction([
+                    prisma.rolePermission.deleteMany({ where: { roleId: id } }),
+                    prisma.role.update({
+                        where: { id },
+                        data: {
+                            name: formattedName,
+                            description,
+                            permissions: {
+                                create: dbPermissions.map(p => ({ permissionId: p.id }))
+                            }
+                        }
+                    })
+                ]);
+
+                return res.status(200).json({
+                    status: 'success',
+                    message: 'Rol actualizado correctamente'
+                });
+            } catch (error) {
+                console.error('Error al actualizar rol:', error);
+                return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+            }
+        };
+
+        // Eliminar un rol
+        const deleteRole = async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                const role = await prisma.role.findUnique({ where: { id } });
+                if (!role) {
+                    return res.status(404).json({ status: 'fail', message: 'Rol no encontrado' });
+                }
+
+                // Protección estricta: No borrar roles core del sistema
+                if (['SUPER_ADMIN', 'USER'].includes(role.name)) {
+                    return res.status(400).json({
+                        status: 'fail',
+                        message: `El rol del sistema "${role.name}" no puede ser eliminado.`
+                    });
+                }
+
+                await prisma.role.delete({ where: { id } });
+
+                return res.status(200).json({ status: 'success', message: 'Rol eliminado correctamente' });
+            } catch (error) {
+                console.error('Error al eliminar rol:', error);
+                return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+            }
+        };
+
+        module.exports = {
+            getRoles,
+            getPermissions,
+            createRole,
+            updateRole,
+            deleteRole
+        };
+        ```
+3. Rutas de Roles (`src/routes/admin.routes.js`)
+    + Agrega las rutas en tu archivo de rutas administrativas:
+        ```js
+        const express = require('express');
+        const router = express.Router();
+        const rolesController = require('../controllers/roles.controller');
+        // Middlewares de autenticación y permisos...
+
+        // CRUD de Roles
+        router.get('/roles', rolesController.getRoles);
+        router.get('/permissions', rolesController.getPermissions);
+        router.post('/roles', rolesController.createRole);
+        router.put('/roles/:id', rolesController.updateRole);
+        router.delete('/roles/:id', rolesController.deleteRole);
+
+        module.exports = router;
+        ```
+
+#### PARTE 3: FRONTEND (Servicio y Vista Vue)
+1. Servicio (`familytree2026-frontend/src/services/roles.service.js`)
+    + Crea el archivo de servicio API para el módulo de roles:
+        ```js
+        import api from '@/api/axios';
+
+        export const rolesService = {
+            async getRoles() {
+                const response = await api.get('/admin/roles');
+                return response.data;
+            },
+
+            async getPermissions() {
+                const response = await api.get('/admin/permissions');
+                return response.data;
+            },
+
+            async createRole(roleData) {
+                const response = await api.post('/admin/roles', roleData);
+                return response.data;
+            },
+
+            async updateRole(roleId, roleData) {
+                const response = await api.put(`/admin/roles/${roleId}`, roleData);
+                return response.data;
+            },
+
+            async deleteRole(roleId) {
+                const response = await api.delete(`/admin/roles/${roleId}`);
+                return response.data;
+            }
+        };
+        ```
+2. Vista Vue (`familytree2026-frontend/src/views/admin/RolesAdminView.vue`)
+    + Crea el componente `RolesAdminView.vue` para la interfaz de gestión de roles y asignación de permisos:
+        ```vue
+        <template>
+            <div class="p-6 max-w-7xl mx-auto">
+                <!-- Botón Volver al Panel -->
+                <div class="mb-6">
+                    <router-link 
+                        to="/admin" 
+                        class="inline-flex items-center space-x-2 text-sm text-purple-400 hover:text-purple-300 transition-colors group"
+                    >
+                        <ChevronLeftIcon class="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" />
+                        <span>Volver al Panel Admin</span>
+                    </router-link>
+                </div>
+
+                <!-- Encabezado y Acción -->
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold text-white">Roles y Permisos</h1>
+                        <p class="text-slate-400 text-sm mt-1">
+                            Administra los roles del sistema y configura las acciones permitidas para cada uno.
+                        </p>
+                    </div>
+                    <button 
+                        @click="openModal()"
+                        class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-medium rounded-xl transition-colors shadow-lg shadow-purple-600/30"
+                    >
+                        <PlusIcon class="w-5 h-5" />
+                        <span>Nuevo Rol</span>
+                    </button>
+                </div>        
+
+                <!-- Tabla de Roles -->
+                <div class="w-full bg-slate-800/60 border border-slate-700/60 rounded-2xl overflow-x-auto shadow-xl">
+                    <table class="w-full text-left text-sm text-slate-300">
+                        <thead class="bg-slate-900/50 text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                            <tr>
+                                <th class="px-6 py-3">Nombre del Rol</th>
+                                <th class="px-6 py-3">Descripción</th>
+                                <th class="px-6 py-3">Usuarios</th>
+                                <th class="px-6 py-3">Permisos Asignados</th>
+                                <th class="px-6 py-3 text-right">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-700/50">
+                            <tr v-for="role in roles" :key="role.id" class="hover:bg-slate-700/30 transition-colors">
+                                <td class="px-6 py-4 font-semibold text-white">
+                                    <span class="px-2.5 py-1 rounded-full text-xs font-bold border" :class="getRoleBadgeClass(role.name)">
+                                        {{ role.name }}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 text-slate-400 max-w-xs truncate">{{ role.description || 'Sin descripción' }}</td>
+                                <td class="px-6 py-4 text-slate-300">{{ role.userCount }} usuario(s)</td>
+                                <!-- Columna Permisos Asignados -->
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <!-- Caso SUPER_ADMIN -->
+                                    <span 
+                                        v-if="role.name === 'SUPER_ADMIN'"
+                                        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/20"
+                                    >
+                                        Acceso Total (Global)
+                                    </span>
+
+                                    <!-- Caso otros roles -->
+                                    <span 
+                                        v-else
+                                        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-slate-700/50 text-slate-300 border border-slate-600/50"
+                                    >
+                                        {{ role.permissions ? role.permissions.length : 0 }} permiso(s)
+                                    </span>
+                                </td>
+                                <!-- Columna Acciones en la tabla -->
+                                <td class="px-6 py-4 whitespace-nowrap text-right">
+                                    <div class="flex items-center justify-end gap-2">
+                                        <button 
+                                            @click="openModal(role)"
+                                            class="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors"
+                                            title="Editar rol"
+                                        >
+                                            <PencilIcon class="w-4 h-4" />
+                                        </button>
+                                        
+                                        <button 
+                                            v-if="role.name !== 'SUPER_ADMIN'"
+                                            @click="confirmDelete(role)"
+                                            class="p-2 text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition-colors"
+                                            title="Eliminar rol"
+                                        >
+                                            <TrashIcon class="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- MODAL CREACIÓN / EDICIÓN -->
+                <div 
+                    v-if="isModalOpen" 
+                    class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-3 sm:p-4"
+                >
+                    <!-- Contenedor Principal: Limita la altura a max 90% de la pantalla -->
+                    <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+                        
+                        <!-- Header (Fijo arriba) -->
+                        <div class="p-4 sm:p-6 border-b border-slate-700 flex justify-between items-center shrink-0">
+                            <h2 class="text-lg font-bold text-white">{{ targetRole ? 'Editar Rol' : 'Crear Nuevo Rol' }}</h2>
+                            <button type="button" @click="isModalOpen = false" class="text-slate-400 hover:text-white p-1">✕</button>
+                        </div>
+
+                        <!-- Formulario completo integrado con scroll vertical interno -->
+                        <form @submit.prevent="saveRole" class="flex flex-col flex-1 overflow-hidden min-h-0">
+                            
+                            <!-- Cuerpo scrolleable -->
+                            <div class="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Nombre del Rol</label>
+                                    <input 
+                                        v-model="form.name" 
+                                        type="text" 
+                                        required 
+                                        :disabled="targetRole?.name === 'SUPER_ADMIN'"
+                                        class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-purple-500 disabled:opacity-50"
+                                        placeholder="Ej: EDITOR"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Descripción</label>
+                                    <input 
+                                        v-model="form.description" 
+                                        type="text" 
+                                        class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-purple-500"
+                                        placeholder="Descripción breve de responsabilidades"
+                                    />
+                                </div>
+
+                                <!-- Asignación de Permisos Agrupados por Módulo -->
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-3">Permisos Asignados</label>
+                                    
+                                    <div v-if="form.name === 'SUPER_ADMIN'" class="p-4 bg-purple-950/40 border border-purple-800/50 rounded-xl text-purple-300 text-xs">
+                                        El rol SUPER_ADMIN cuenta con acceso absoluto e irrestricto a todas las funcionalidades del sistema.
+                                    </div>
+                                    
+                                    <div v-else class="space-y-4">
+                                        <div v-for="(perms, moduleName) in groupedPermissions" :key="moduleName" class="bg-slate-900/60 p-4 rounded-xl border border-slate-700/50">
+                                            <h4 class="text-xs font-bold text-purple-400 uppercase mb-3">{{ moduleName }}</h4>
+                                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                                <label v-for="perm in perms" :key="perm.id" class="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        :value="perm.action" 
+                                                        v-model="form.permissions"
+                                                        class="rounded border-slate-700 bg-slate-800 text-purple-600 focus:ring-purple-500"
+                                                    />
+                                                    <span class="break-all">{{ perm.action }}</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Footer con Botones (Fijo abajo) -->
+                            <div class="flex justify-end space-x-3 p-4 sm:p-6 border-t border-slate-700 bg-slate-800/90 shrink-0">
+                                <button type="button" @click="isModalOpen = false" class="px-4 py-2 text-sm font-medium text-slate-400 hover:text-white">Cancelar</button>
+                                <button type="submit" :disabled="saving" class="px-5 py-2 bg-purple-600 hover:bg-purple-500 text-white font-medium rounded-xl text-sm transition-all shadow-lg shadow-purple-600/20">
+                                    {{ saving ? 'Guardando...' : 'Guardar Rol' }}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        <script setup>
+            import { PlusIcon, PencilIcon, TrashIcon, ChevronLeftIcon } from '@heroicons/vue/24/outline';
+            import { ref, computed, onMounted } from 'vue';
+            import { rolesService } from '@/services/roles.service';
+            import Swal from 'sweetalert2';
+
+            const roles = ref([]);
+            const availablePermissions = ref([]);
+            const isModalOpen = ref(false);
+            const saving = ref(false);
+            const targetRole = ref(null);
+
+            const form = ref({
+                name: '',
+                description: '',
+                permissions: []
+            });
+
+            // Agrupar permisos por módulo para mostrarlos organizados
+            const groupedPermissions = computed(() => {
+                return availablePermissions.value.reduce((acc, perm) => {
+                    if (!acc[perm.module]) acc[perm.module] = [];
+                    acc[perm.module].push(perm);
+                    return acc;
+                }, {});
+            });
+
+            const loadData = async () => {
+                try {
+                    const [rolesRes, permsRes] = await Promise.all([
+                        rolesService.getRoles(),
+                        rolesService.getPermissions()
+                    ]);
+                    roles.value = rolesRes.data.roles;
+                    availablePermissions.value = permsRes.data.permissions;
+                } catch (err) {
+                    console.error('Error al cargar datos:', err);
+                }
+            };
+
+            const openModal = (role = null) => {
+                targetRole.value = role;
+                if (role) {
+                    form.value = {
+                        name: role.name,
+                        description: role.description || '',
+                        permissions: [...role.permissions]
+                    };
+                } else {
+                    form.value = { name: '', description: '', permissions: [] };
+                }
+                isModalOpen.value = true;
+            };
+
+            const saveRole = async () => {
+                saving.value = true;
+                try {
+                    if (targetRole.value) {
+                        await rolesService.updateRole(targetRole.value.id, form.value);
+                    } else {
+                        await rolesService.createRole(form.value);
+                    }
+                    isModalOpen.value = false;
+                    await loadData();
+                    
+                    Swal.fire({
+                        title: '¡Guardado!',
+                        text: 'El rol ha sido guardado exitosamente.',
+                        icon: 'success',
+                        timer: 2000,
+                        showConfirmButton: false,
+                        background: '#1e293b',
+                        color: '#f8fafc'
+                    });
+                } catch (err) {
+                    Swal.fire({
+                        title: 'Error',
+                        text: err.response?.data?.message || 'Error al guardar el rol',
+                        icon: 'error',
+                        background: '#1e293b',
+                        color: '#f8fafc'
+                    });
+                } finally {
+                    saving.value = false;
+                }
+            };
+
+            const confirmDelete = async (role) => {
+                const result = await Swal.fire({
+                    title: '¿Eliminar Rol?',
+                    html: `Estás a punto de eliminar el rol <strong>${role.name}</strong>.`,
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#ef4444',
+                    cancelButtonColor: '#64748b',
+                    confirmButtonText: 'Sí, eliminar',
+                    cancelButtonText: 'Cancelar',
+                    background: '#1e293b',
+                    color: '#f8fafc'
+                });
+
+                if (result.isConfirmed) {
+                    try {
+                        await rolesService.deleteRole(role.id);
+                        await loadData();
+                    } catch (err) {
+                        Swal.fire({
+                            title: 'Error',
+                            text: err.response?.data?.message || 'Error al eliminar el rol',
+                            icon: 'error',
+                            background: '#1e293b',
+                            color: '#f8fafc'
+                        });
+                    }
+                }
+            };
+
+            const getRoleBadgeClass = (name) => {
+                switch (name) {
+                    case 'SUPER_ADMIN': return 'bg-purple-900/40 text-purple-300 border-purple-500/30';
+                    case 'ADMIN': return 'bg-blue-900/40 text-blue-300 border-blue-500/30';
+                    default: return 'bg-emerald-900/40 text-emerald-300 border-emerald-500/30';
+                }
+            };
+
+            onMounted(() => {
+                loadData();
+            });
+        </script>
+        ```
+
+### Sección de Auditoría y Logs
+#### Paso 1: Extender el Esquema de Prisma (`schema.prisma`)
+1. Primero necesitamos la tabla donde se guardarán los registros:
+    ```prisma
+    // ...
+    model User {
+        // ... tus campos actuales de User (id, email, etc.)
+
+        auditLogs AuditLog[] // <--- Agrega esta línea
+    }
+    // ...
+    model AuditLog {
+        id        String   @id @default(uuid())
+        userId    String?  // Opcional por si la acción la ejecuta un usuario no autenticado o el sistema
+        user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+        
+        action    String   // Ejemplos: 'USER_CREATED', 'ROLE_UPDATED', 'PERSON_DELETED'
+        entity    String   // La entidad afectada: 'User', 'Person', 'Tree', 'Auth'
+        entityId  String?  // ID del registro afectado (si aplica)
+        
+        details   Json?    // Información extra (ej. cambios anteriores y nuevos, IP, User-Agent)
+        ipAddress String?
+        
+        createdAt DateTime @default(now())
+
+        @@index([userId])
+        @@index([action])
+        @@index([entity])
+        @@index([createdAt])
+    }
+    ```
+2. Ejecuta la migración para actualizar la base de datos:
+    ```bash
+    npx prisma format
+    npx prisma generate
+    npx prisma migrate dev --name add_audit_logs
+    ```
+
+#### Paso 2: Servicio Helper para Registrar Logs en el Backend
++ Creamos un servicio reutilizable `src/services/audit.service.js` para grabar eventos desde cualquier controller o middleware fácilmente.
+    ```js
+    const prisma = require('../config/prisma');
+
+    export const auditService = {
+        /**
+         * Registra un evento en la auditoría.
+         */
+        async log({ userId = null, action, entity, entityId = null, details = null, req = null }) {
+            try {
+            let ipAddress = null;
+
+            if (req) {
+                ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || null;
+            }
+
+            await prisma.auditLog.create({
+                data: {
+                    userId,
+                    action,
+                    entity,
+                    entityId,
+                    details,
+                    ipAddress,
+                },
+            });
+            } catch (error) {
+                // Evitamos que un error guardando el log tumbe la petición principal
+                console.error('[AUDIT LOG ERROR]:', error);
+            }
+        },
+    };
+    ```
+    + Ejemplo de cómo usarlo en cualquier controller:
+        ```js
+        // Ejemplo: Al actualizar los roles de un usuario
+        await auditService.log({
+            userId: req.user.id, // Usuario que realiza la acción
+            action: 'UPDATE_ROLES',
+            entity: 'User',
+            entityId: targetUserId,
+            details: { rolesAnteriores: oldRoles, rolesNuevos: newRoles },
+            req,
+        });
+        ```
+
+#### Paso 3: Controller y Rutas de Auditoría (API Express)
+1. Creamos el controller `src/controllers/audit.controller.js` para consultar los logs con paginación, filtros por fecha, entidad y usuario.
+    ```js
+    const prisma = require('../config/prisma');
+
+    const getAuditLogs = async (req, res) => {
+        try {
+            const { 
+                page = 1, 
+                limit = 15, 
+                entity, 
+                action, 
+                search,
+                startDate,
+                endDate 
+            } = req.query;
+
+            const skip = (Number(page) - 1) * Number(limit);
+            const take = Number(limit);
+
+            const where = {};
+
+            // Validamos que no vengan como cadenas vacías desde req.query
+            if (entity && entity.trim() !== '') {
+                where.entity = entity;
+            }
+
+            if (action && action.trim() !== '') {
+                where.action = { contains: action, mode: 'insensitive' };
+            }
             
-            <!-- Módulo: Usuarios -->
-            <router-link 
-                to="/admin/users" 
-                class="group p-6 bg-slate-800/60 border border-slate-700/60 hover:border-emerald-500/50 rounded-2xl transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/5"
-            >
-                <div class="flex items-center justify-between mb-4">
-                    <div class="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl group-hover:scale-110 transition-transform">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                        </svg>
-                    </div>
-                    <span class="text-xs font-semibold px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full">Activo</span>
-                </div>
-                <h2 class="text-lg font-semibold text-white group-hover:text-emerald-400 transition-colors">Gestión de Usuarios</h2>
-                <p class="text-slate-400 text-xs mt-1">Creación, edición de datos personales, asignación de roles y eliminación.</p>
-            </router-link>
+            if (search && search.trim() !== '') {
+                where.OR = [
+                    { action: { contains: search, mode: 'insensitive' } },
+                    { entity: { contains: search, mode: 'insensitive' } },
+                    { user: { name: { contains: search, mode: 'insensitive' } } },
+                    { user: { email: { contains: search, mode: 'insensitive' } } },
+                ];
+            }
 
-            <!-- Módulo: Roles y Permisos -->
-            <router-link 
-                to="/admin/roles" 
-                class="group p-6 bg-slate-800/60 border border-slate-700/60 hover:border-purple-500/50 rounded-2xl transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/5"
-            >
-                <div class="flex items-center justify-between mb-4">
-                    <div class="p-3 bg-purple-500/10 text-purple-400 rounded-xl group-hover:scale-110 transition-transform">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                        </svg>
-                    </div>
-                    <span class="text-xs font-semibold px-2.5 py-1 bg-purple-500/10 text-purple-400 border border-purple-500/20 rounded-full">Dev / Config</span>
-                </div>
-                <h2 class="text-lg font-semibold text-white group-hover:text-purple-400 transition-colors">Roles y Permisos</h2>
-                <p class="text-slate-400 text-xs mt-1">Administración de la tabla de roles globales del sistema (CRUD de Roles).</p>
-            </router-link>
+            if (startDate || endDate) {
+                where.createdAt = {};
+                if (startDate) where.createdAt.gte = new Date(startDate);
+                if (endDate) where.createdAt.lte = new Date(endDate);
+            }
 
-            <!-- Módulo: Logs de Auditoría / Sistema (Sugerencia) -->
-            <div class="p-6 bg-slate-800/20 border border-slate-700/30 rounded-2xl opacity-60 cursor-not-allowed">
-                <div class="flex items-center justify-between mb-4">
-                    <div class="p-3 bg-slate-700/30 text-slate-500 rounded-xl">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                    </div>
-                    <span class="text-xs font-semibold px-2.5 py-1 bg-slate-700/30 text-slate-500 border border-slate-600/30 rounded-full">Próximamente</span>
+            const [logs, total] = await Promise.all([
+                prisma.auditLog.findMany({
+                    where,
+                    skip,
+                    take,
+                    orderBy: { createdAt: 'desc' },
+                    include: {
+                        user: {
+                            select: { id: true, name: true, email: true },
+                        },
+                    },
+                }),
+                prisma.auditLog.count({ where }),
+            ]);
+
+            return res.json({
+                status: 'success',
+                data: {
+                    logs,
+                    pagination: {
+                        total,
+                        page: Number(page),
+                        totalPages: Math.ceil(total / take) || 1,
+                    },
+                },
+            });
+        } catch (error) {
+            console.error('Error al obtener audit logs:', error);
+            return res.status(500).json({ message: 'Error interno del servidor' });
+        }
+    };
+
+    module.exports = {
+        getAuditLogs,
+    };
+    ```
+2. Agrega la ruta protegida en `src/routes/admin.routes.js`:
+    ```js
+    // ...
+    // Importar el nuevo controlador de auditoría (CommonJS)
+    const { getAuditLogs } = require('../controllers/audit.controller');
+    // ...
+    // Ruta de Auditoría y Logs
+    router.get('/audit-logs', getAuditLogs);
+    // ...
+    ```
+
+#### Paso 4: Servicio Axios en el Frontend Vue 3
++ Añadimos el método para consultar los logs en el cliente API en `src/services/admin.service.js`:
+    ```js
+    // ...
+    export const adminService = {
+        // ... otros métodos previos (getUsers, updateUser, etc.)
+
+        getAuditLogs(params = {}) {
+            return api.get('/admin/audit-logs', { params });
+        },
+    };
+    ```
+
+#### Paso 5: Vista de Auditoría y Logs en Vue 3 (`AuditLogsView.vue`)
++ Vista optimizada con Tailwind v4, selector de fechas, visualización JSON para detalles y badge por tipo de entidad.
+1. Creamos la vista `src/views/admin/AuditLogsView.vue`:
+    ```vue
+    <template>
+        <div class="p-6 max-w-7xl mx-auto space-y-6">
+            <!-- Header -->
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Auditoría y Registros del Sistema</h1>
+                    <p class="text-sm text-slate-500 dark:text-slate-400">Historial detallado de actividad y acciones ejecutadas.</p>
                 </div>
-                <h2 class="text-lg font-semibold text-slate-400">Auditoría / Logs</h2>
-                <p class="text-slate-500 text-xs mt-1">Historial de cambios críticos y acciones de los administradores.</p>
+                <button 
+                    @click="fetchLogs" 
+                    class="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-sm font-medium transition-colors w-fit"
+                >
+                    <span>Refrescar</span>
+                </button>
             </div>
 
+            <!-- Filtros -->
+            <div class="bg-white dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Buscar</label>
+                    <input 
+                        v-model="filters.search" 
+                        @input="debounceSearch"
+                        type="text" 
+                        placeholder="Acción, usuario, email..." 
+                        class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Entidad</label>
+                    <select 
+                        v-model="filters.entity" 
+                        @change="fetchLogs"
+                        class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    >
+                    <option value="">Todas</option>
+                    <option value="User">Usuario</option>
+                    <option value="Person">Persona / Árbol</option>
+                    <option value="Auth">Autenticación</option>
+                    <option value="System">Sistema</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Desde</label>
+                    <input 
+                    v-model="filters.startDate" 
+                    @change="fetchLogs"
+                    type="date" 
+                    class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Hasta</label>
+                    <input 
+                        v-model="filters.endDate" 
+                        @change="fetchLogs"
+                        type="date" 
+                        class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                </div>
+            </div>
+
+            <!-- Tabla -->
+            <div class="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 uppercase text-[11px] font-semibold tracking-wider border-b border-slate-200 dark:border-slate-700">
+                            <tr>
+                            <th class="py-3 px-4">Fecha / Hora</th>
+                            <th class="py-3 px-4">Usuario</th>
+                            <th class="py-3 px-4">Acción</th>
+                            <th class="py-3 px-4">Entidad</th>
+                            <th class="py-3 px-4">IP</th>
+                            <th class="py-3 px-4 text-right">Detalles</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50 text-slate-700 dark:text-slate-300">
+                            <tr v-if="loading">
+                            <td colspan="6" class="text-center py-8 text-slate-400">Cargando registros...</td>
+                            </tr>
+                            <tr v-else-if="logs.length === 0">
+                            <td colspan="6" class="text-center py-8 text-slate-400">No se encontraron eventos.</td>
+                            </tr>
+                            <tr v-for="log in logs" :key="log.id" class="hover:bg-slate-50/50 dark:hover:bg-slate-700/30 transition-colors">
+                            <td class="py-3 px-4 font-mono text-xs whitespace-nowrap">{{ formatDate(log.createdAt) }}</td>
+                            <td class="py-3 px-4">
+                                <div v-if="log.user" class="flex flex-col">
+                                    <span class="font-medium text-slate-900 dark:text-white">{{ log.user.name }}</span>
+                                    <span class="text-xs text-slate-400">{{ log.user.email }}</span>
+                                </div>
+                                <span v-else class="text-xs text-slate-400 italic">Sistema / Anónimo</span>
+                            </td>
+                            <td class="py-3 px-4 font-semibold text-slate-800 dark:text-slate-200">{{ log.action }}</td>
+                            <td class="py-3 px-4">
+                                <span :class="getEntityBadgeClass(log.entity)" class="px-2.5 py-1 text-[11px] font-semibold rounded-lg border">
+                                    {{ log.entity }}
+                                </span>
+                            </td>
+                            <td class="py-3 px-4 font-mono text-xs text-slate-400">{{ log.ipAddress || 'N/A' }}</td>
+                            <td class="py-3 px-4 text-right">
+                                <button 
+                                    v-if="log.details" 
+                                    @click="openDetailsModal(log)" 
+                                    class="text-xs text-emerald-600 dark:text-emerald-400 hover:underline font-medium"
+                                >
+                                    Ver JSON
+                                </button>
+                                <span v-else class="text-xs text-slate-400">-</span>
+                            </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Paginación -->
+                <div class="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-900/40 border-t border-slate-200 dark:border-slate-700">
+                    <span class="text-xs text-slate-500 dark:text-slate-400">
+                        Mostrando página {{ pagination.page }} de {{ pagination.totalPages }} ({{ pagination.total }} registros)
+                    </span>
+                    <div class="flex gap-2">
+                        <button 
+                            :disabled="pagination.page <= 1" 
+                            @click="changePage(pagination.page - 1)" 
+                            class="px-3 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium disabled:opacity-40"
+                        >
+                            Anterior
+                        </button>
+                        <button 
+                            :disabled="pagination.page >= pagination.totalPages" 
+                            @click="changePage(pagination.page + 1)" 
+                            class="px-3 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium disabled:opacity-40"
+                        >
+                            Siguiente
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal de Detalles JSON -->
+            <div v-if="selectedLogModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+                <div class="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-lg w-full shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+                    <h3 class="text-lg font-bold text-slate-900 dark:text-white">Detalles del Evento</h3>
+                    <p class="text-xs text-slate-400 font-mono">{{ selectedLogModal.action }} - {{ formatDate(selectedLogModal.createdAt) }}</p>
+                    
+                    <div class="bg-slate-950 p-4 rounded-xl text-emerald-400 font-mono text-xs overflow-x-auto max-h-80">
+                        <pre>{{ JSON.stringify(selectedLogModal.details, null, 2) }}</pre>
+                    </div>
+
+                    <div class="flex justify-end">
+                        <button 
+                            @click="selectedLogModal = null" 
+                            class="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl hover:bg-slate-200 transition-colors"
+                        >
+                            Cerrar
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
-    </div>
-</template>
-```
-3. Crear vista administrativa `src/views/admin/AdminDashboardView.vue`:
-```vue
-```
-4. 🛣️ Registrar la Ruta y Guard de Navegación (`src/router/index.js`)
+    </template>
+
+    <script setup>
+        import { ref, onMounted } from 'vue';
+        import { adminService } from '@/services/admin.service';
+
+        const logs = ref([]);
+        const loading = ref(false);
+        const selectedLogModal = ref(null);
+
+        const filters = ref({
+            search: '',
+            entity: '',
+            startDate: '',
+            endDate: '',
+        });
+
+        const pagination = ref({
+            page: 1,
+            total: 0,
+            totalPages: 1,
+        });
+
+        const fetchLogs = async () => {
+        loading.value = true;
+        try {
+            const response = await adminService.getAuditLogs({
+                page: pagination.value.page,
+                limit: 15,
+                ...filters.value,
+            });
+            logs.value = response.data.logs;
+            pagination.value = response.data.pagination;
+        } catch (error) {
+            console.error('Error cargando logs:', error);
+        } finally {
+            loading.value = false;
+        }
+        };
+
+        let searchTimeout = null;
+        const debounceSearch = () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                pagination.value.page = 1;
+                fetchLogs();
+            }, 400);
+        };
+
+        const changePage = (newPage) => {
+            pagination.value.page = newPage;
+            fetchLogs();
+        };
+
+        const openDetailsModal = (log) => {
+            selectedLogModal.value = log;
+        };
+
+        const getEntityBadgeClass = (entity) => {
+            switch (entity) {
+                case 'User': return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
+                case 'Person': return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
+                case 'Auth': return 'bg-amber-500/10 text-amber-500 border-amber-500/20';
+                default: return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+            }
+        };
+
+        const formatDate = (dateString) => {
+            if (!dateString) return 'N/A';
+            return new Date(dateString).toLocaleString('es-ES', {
+                dateStyle: 'short',
+                timeStyle: 'medium',
+            });
+        };
+
+        onMounted(() => {
+        fetchLogs();
+        });
+    </script>
+    ```
+2. Registrar la ruta en Vue Router:
+    + Abre tu archivo de rutas en el frontend `src/router/index.js` y añade la ruta en la sección de administración:
+        ```js
+        const router = createRouter({
+            history: createWebHistory(import.meta.env.BASE_URL),
+            routes: [
+                // ...
+                { 
+                    path: '/admin/audit-logs', 
+                    name: 'admin-audit-logs', 
+                    component: () => import('@/views/admin/AuditLogsView.vue'), 
+                    meta: { requiresAuth: true, requiresRole: 'SUPER_ADMIN' } 
+                },    
+                // ...
+            ],
+        });
+        ```
+
+
+
+### Módulo Administrativo
+1. Crear vista administrativa `src/views/admin/AdminDashboardView.vue`:
+    ```vue
+    <template>
+        <div class="p-6 max-w-7xl mx-auto">
+            <!-- Botón de retorno al Dashboard Principal -->
+            <div class="mb-6">
+                <router-link 
+                    to="/dashboard" 
+                    class="inline-flex items-center space-x-2 text-sm text-slate-400 hover:text-white transition-colors group"
+                >
+                    <ChevronLeftIcon class="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" />
+                    <span>Volver al Inicio</span>
+                </router-link>
+            </div>        
+            <div class="mb-8">
+                <h1 class="text-2xl font-bold text-white">Panel de Administración</h1>
+                <p class="text-slate-400 text-sm">Gestiona la configuración global de la plataforma, accesos y permisos.</p>
+            </div>
+
+            <!-- Grid de Accesos Directos a Módulos Admin -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                
+                <!-- Módulo: Usuarios -->
+                <router-link 
+                    to="/admin/users" 
+                    class="group p-6 bg-slate-800/60 border border-slate-700/60 hover:border-emerald-500/50 rounded-2xl transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/5"
+                >
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl group-hover:scale-110 transition-transform">
+                            <UsersIcon class="w-6 h-6" />
+                        </div>
+                        <span class="text-xs font-semibold px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full">Activo</span>
+                    </div>
+                    <h2 class="text-lg font-semibold text-white group-hover:text-emerald-400 transition-colors">Gestión de Usuarios</h2>
+                    <p class="text-slate-400 text-xs mt-1">Creación, edición de datos personales, asignación de roles y eliminación.</p>
+                </router-link>
+
+                <!-- Módulo: Roles y Permisos -->
+                <router-link 
+                    to="/admin/roles" 
+                    class="group p-6 bg-slate-800/60 border border-slate-700/60 hover:border-purple-500/50 rounded-2xl transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/5"
+                >
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="p-3 bg-purple-500/10 text-purple-400 rounded-xl group-hover:scale-110 transition-transform">
+                            <ShieldCheckIcon class="w-6 h-6" />
+                        </div>
+                        <span class="text-xs font-semibold px-2.5 py-1 bg-purple-500/10 text-purple-400 border border-purple-500/20 rounded-full">Dev / Config</span>
+                    </div>
+                    <h2 class="text-lg font-semibold text-white group-hover:text-purple-400 transition-colors">Roles y Permisos</h2>
+                    <p class="text-slate-400 text-xs mt-1">Administración de la tabla de roles globales del sistema (CRUD de Roles).</p>
+                </router-link>
+
+                <!-- Módulo: Logs de Auditoría / Sistema (Sugerencia) -->
+                <div class="p-6 bg-slate-800/20 border border-slate-700/30 rounded-2xl opacity-60 cursor-not-allowed">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="p-3 bg-slate-700/30 text-slate-500 rounded-xl">
+                            <DocumentChartBarIcon class="w-6 h-6" />
+                        </div>
+                        <span class="text-xs font-semibold px-2.5 py-1 bg-slate-700/30 text-slate-500 border border-slate-600/30 rounded-full">Próximamente</span>
+                    </div>
+                    <h2 class="text-lg font-semibold text-slate-400">Auditoría / Logs</h2>
+                    <p class="text-slate-500 text-xs mt-1">Historial de cambios críticos y acciones de los administradores.</p>
+                </div>
+
+            </div>
+        </div>
+    </template>
+
+    <script setup>
+        import { ChevronLeftIcon, UsersIcon, ShieldCheckIcon, DocumentChartBarIcon } from '@heroicons/vue/24/outline';
+    </script>
+    ```
+2. 🛣️ Registrar la Ruta y Guard de Navegación (`src/router/index.js`)
     + Añade la ruta en tu router asegurándote de restringir el acceso solo a usuarios con rol SUPER_ADMIN:    
         ```js
-        { path: '/admin', name: 'admin-dashboard', component: () => import('../views/admin/AdminDashboardView.vue'), meta: { requiresAuth: true, requiredRole: 'SUPER_ADMIN' } },
-        { path: '/admin/users', name: 'admin-users', component: () => import('../views/admin/UsersAdminView.vue'), meta: { requiresAuth: true, requiresRole: 'SUPER_ADMIN' }, }
+        { path: '/admin', name: 'admin-dashboard', component: () => import('../views/admin/AdminDashboardView.vue'), meta: { requiresAuth: true, requiresRole: 'SUPER_ADMIN' } },
+        { path: '/admin/users', name: 'admin-users', component: () => import('../views/admin/UsersAdminView.vue'), meta: { requiresAuth: true, requiresRole: 'SUPER_ADMIN' }, },
+        { path: '/admin/roles', name: 'admin-roles', component: () => import('@/views/admin/RolesAdminView.vue'), meta: { requiresAuth: true, requiresRole: 'SUPER_ADMIN' } }
         ```
     + Y actualiza el beforeEach para validar el meta requiresRole:
         ```js
@@ -2413,7 +4108,7 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
             if (to.meta.requiresRole) {
                 const userRoles = authStore.user?.roles || [];
                 if (!userRoles.includes(to.meta.requiresRole)) {
-                    return { name: 'dashboard' }; // Redirige al dashboard si no es SuperAdmin
+                    return { name: 'dashboard' }; // Redirige al dashboard si no posee el rol
                 }
             }
 
