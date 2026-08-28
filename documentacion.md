@@ -4116,6 +4116,302 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
         });
         ```
 
+## Crear el Helper de IP y Contexto
++ Crea el archivo `src/utils/request.utils.js` (o dentro de tu carpeta de utilidades preferida):
+    ```js
+    // src/utils/request.utils.js
+
+    /**
+     * Normaliza y obtiene la IP real del cliente desde la request
+     */
+    const getClientIp = (req) => {
+        if (!req) return '127.0.0.1';
+
+        let ip = req.headers?.[x-forwarded-for]?.split(',')[0].trim() 
+            || req.socket?.remoteAddress 
+            || req.ip;
+
+        if (ip === '::1' || ip === '::ffff:127.0.0.1') {
+            return '127.0.0.1';
+        }
+        return ip || '127.0.0.1';
+    };
+
+    module.exports = { getClientIp };
+    ```
+
+
+## Implementar funcionalidad a Auditoría y Logs
+1. Crear el Contexto de Auditoría (`src/middlewares/auditContext.middleware.js`)
+    + Crea este archivo para capturar la identidad del usuario conectado (`req.user.id`) en cada petición entrante mediante AsyncLocalStorage de Node.js.
+        ```js
+        const { AsyncLocalStorage } = require('async_hooks');
+
+        const auditStorage = new AsyncLocalStorage();
+
+        const setAuditUser = (req, res, next) => {
+            // Se ejecuta el siguiente middleware dentro del contexto de AsyncLocalStorage
+            auditStorage.run({}, () => {
+                // En este punto inicial req.user puede ser undefined si la ruta aún no ha pasado por protect
+                next();
+            });
+        };
+
+        module.exports = { setAuditUser, auditStorage };
+        ```
+2. Actualización de `src/config/prisma.js`:
+    + Ajusta la lectura dentro de Prisma para evaluar store de forma dinámica al ejecutar cada consulta SQL:
+        ```js
+        const { PrismaClient } = require('@prisma/client');
+        const { PrismaPg } = require('@prisma/adapter-pg');
+        const { Pool } = require('pg');
+        const { auditStorage } = require('../middlewares/auditContext.middleware');     // <- Nuevo
+        require('dotenv').config();
+
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+        const adapter = new PrismaPg(pool);
+        const prismaRaw = new PrismaClient({ adapter });                // <- Nuevo
+        /* const prisma = new PrismaClient({ adapter }); */     // <- Eliminar
+        // Nuevo bloque
+        const prisma = prismaRaw.$extends({
+            query: {
+                $allModels: {
+                    async $allOperations({ model, operation, args, query }) {
+                        const result = await query(args);
+
+                        const writeOperations = ['create', 'update', 'delete', 'updateMany', 'deleteMany'];
+
+                        if (writeOperations.includes(operation) && model !== 'AuditLog') {
+                            try {
+                                const store = auditStorage.getStore();
+                                const userId = store?.userId || null;
+
+                                const sanitizedDetails = { ...args.data };
+                                if (sanitizedDetails.password) {
+                                    sanitizedDetails.password = '[PROTECTED]';
+                                }
+
+                                // Mapeo de datos para AuditLog
+                                const auditData = {
+                                    action: `${operation.toUpperCase()}_${model.toUpperCase()}`,
+                                    entity: model,
+                                    entityId: result?.id ? String(result.id) : (args?.where?.id ? String(args.where.id) : 'N/A'),
+                                    details: JSON.stringify(sanitizedDetails),
+                                };
+
+                                // Si existe un usuario autenticado, conectarlo a la relación de Prisma
+                                if (userId) {
+                                    auditData.user = { connect: { id: userId } };
+                                }
+
+                                await prismaRaw.auditLog.create({
+                                    data: auditData,
+                                });
+                            } catch (error) {
+                                console.error('Error registrando auditoría en Prisma Extension:', error);
+                            }
+                        }
+
+                        return result;
+                    },
+                },
+            },
+        });
+
+
+        module.exports = prisma;
+        ```
+3. Actualización de `src/app.js`:
+    + Importa `setAuditUser` y regístralo globalmente antes de las rutas de la API:
+        ```js
+        const express = require('express');
+        const cors = require('cors');
+        require('dotenv').config();
+
+        // Middlewares
+        const { setAuditUser } = require('./middlewares/auditContext.middleware');  // <- Nuevo middleware para establecer el contexto de auditoría
+
+        // ...
+
+        app.use(cors({
+            // ...
+        }));
+        app.use(express.json());
+
+        // Contexto de auditoría global para envolver la petición HTTP
+        app.use(setAuditUser);  // <- Nuevo middleware para establecer el contexto de auditoría 
+
+        // ...
+        ```
+4. Actualización del middleware protect (`src/middlewares/auth.middleware.js`)
+    + Para asegurar que el ID del usuario quede vinculado al contexto de auditoría una vez que el JWT se decodifique con éxito, asigna el valor dentro de auditStorage:
+        ```js
+        const jwt = require('jsonwebtoken');
+        const prisma = require('../config/prisma');
+        const { auditStorage } = require('./auditContext.middleware');  // <- Nuevo
+
+        // 1. Verificar si la petición incluye un Token JWT válido y poblar el contexto de auditoría
+        // Nuevo: Nueva versión del middleware authenticateJWT que también actualiza el contexto de auditoría
+        const authenticateJWT = (req, res, next) => {
+            const authHeader = req.headers.authorization;
+
+            if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                return res.status(401).json({
+                    status: 'fail',
+                    message: 'Acceso no autorizado. Debe proporcionar un Token Bearer',
+                });
+            }
+
+            const token = authHeader.split(' ')[1];
+
+            try {
+                const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                req.user = decoded; // Adjunta el usuario (id, email, roles) al objeto request
+
+                // Actualizar el context store con el ID del usuario decodificado
+                const store = auditStorage.getStore();
+                if (store) {
+                    store.userId = decoded.id;
+                }
+
+                next();
+            } catch (error) {
+                return res.status(403).json({
+                    status: 'fail',
+                    message: 'Token inválido o expirado',
+                });
+            }
+        };
+        // ...
+        ```
+5. Actualizar los métodos login y logout del controlador `src/controllers/auth.controller.js`:
+    ```js
+    const bcrypt = require('bcryptjs');
+    const jwt = require('jsonwebtoken');
+    const prisma = require('../config/prisma');
+    // ...
+    // 2. INICIO DE SESIÓN (LOGIN)
+    const login = async (req, res) => {
+        try {
+            const { email, password } = req.body;
+
+            // 1. Buscar usuario con sus roles asociados
+            const user = await prisma.user.findUnique({
+                where: { email },
+                include: {
+                    roles: {
+                        include: {
+                            role: true,
+                        },
+                    },
+                },
+            });
+
+            // 2. Verificar si el usuario existe y si está activo
+            if (!user || !user.isActive) {
+                // Si el usuario no existe, registramos el intento fallido
+                if (!user) {
+                    await prisma.auditLog.create({
+                        data: {
+                            action: 'LOGIN_FAILED',
+                            entity: 'User',
+                            details: JSON.stringify({ email, reason: 'Usuario no encontrado', ip: req.ip }),
+                        },
+                    });
+                }
+
+                return res.status(401).json({
+                    status: 'fail',
+                    message: 'Credenciales inválidas o cuenta desactivada',
+                });
+            }
+
+            // 3. Comprobar la contraseña mediante bcrypt
+            const isPasswordValid = await bcrypt.compare(password, user.password);
+
+            if (!isPasswordValid) {
+                // Registrar intento fallido por contraseña incorrecta
+                await prisma.auditLog.create({
+                    data: {
+                        action: 'LOGIN_FAILED',
+                        entity: 'User',
+                        details: JSON.stringify({ email, reason: 'Contraseña incorrecta', ip: req.ip }),
+                    },
+                });
+
+                return res.status(401).json({
+                    status: 'fail',
+                    message: 'Credenciales inválidas',
+                });
+            }
+
+            // 4. Extraer nombres de roles y generar Token JWT
+            const userRoles = user.roles.map((ur) => ur.role.name);
+            const token = generateToken(user, userRoles);
+
+            // 5. Registrar inicio de sesión exitoso
+            await prisma.auditLog.create({
+                data: {
+                    action: 'LOGIN_SUCCESS',
+                    entity: 'User',
+                    entityId: String(user.id),
+                    user: { connect: { id: user.id } },
+                    details: JSON.stringify({ ip: req.ip, userAgent: req.headers['user-agent'] }),
+                },
+            });
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Inicio de sesión exitoso',
+                data: {
+                    user: {
+                        id: user.id,
+                        email: user.email,
+                        name: user.name,
+                        roles: userRoles,
+                    },
+                    token,
+                },
+            });
+        } catch (error) {
+            console.error('Error en login:', error);
+            return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+        }
+    };
+    // ...
+    // 4. CIERRE DE SESIÓN (LOGOUT)
+    const logout = async (req, res) => {
+    try {
+        // Nuvo bloque para registrar Logout
+        if (req.user?.id) {
+            await prisma.auditLog.create({
+                data: {
+                    action: 'LOGOUT',
+                    entity: 'User',
+                    entityId: String(req.user.id),
+                    user: { connect: { id: req.user.id } },
+                    details: JSON.stringify({ ip: req.ip }),
+                },
+            });
+        }
+
+        // En arquitecturas stateless (JWT en Authorization Header), el servidor confirma
+        // el cierre de sesión para que el Frontend proceda a destruir el token almacenado.
+        return res.status(200).json({
+            status: 'success',
+            message: 'Sesión cerrada correctamente',
+        });
+    } catch (error) {
+        console.error('Error en logout:', error);
+        return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+    }
+    };
+
+    module.exports = { register, login, getMe, logout };
+    ```
+
+
+
 ## Habilitar CORS Dinámico 
 ### En el backend (`src/app.js`)
 1. Modificar `src/app.js`:
@@ -4343,6 +4639,35 @@ npx prisma studio --url "postgresql://dev_user:dev_password@localhost:5432/local
     + Haz clic en el botón Cerrar Sesión. Debe limpiar el localStorage, borrar el usuario de Pinia y redirigirte a `/login`.
 6. Prueba de Protección de Rutas:
     + Estando deslogueado, intenta escribir manualmente `http://localhost:5173/dashboard` en la barra de direcciones. El Navigation Guard debe rebotarte de inmediato a `/login`.
+
+
+## Levantar backend, frontend y cliente de bd en local
+1. Instala la herramienta globalmente en tu WSL:
+```bash
+npm install -g concurrently
+```
+2. Crea un alias o un pequeño script en tu home (~/start_services.sh):
+```bash
+nano ~/start_services.sh
+```
+3. Pega lo siguiente dentro del archivo:
+```sh
+#!/bin/bash
+concurrently \
+  --names "BACKEND,PRISMA,FRONTEND" \
+  --prefix-colors "blue,magenta,green" \
+  "cd /home/bazop/projects/family_tree2026/familytree2026-backend && npm run dev" \
+  "cd /home/bazop/projects/family_tree2026/familytree2026-backend && npx prisma studio" \
+  "cd /home/bazop/projects/family_tree2026/familytree2026-frontend && npm run dev"
+```
+4. Dale permisos de ejecución:
+```bash
+chmod +x ~/start_services.sh
+```
+5. A partir de este momento, solo necesitas abrir tu terminal de WSL y ejecutar:
+```bash
+./start_services.sh
+```
 
 
 
