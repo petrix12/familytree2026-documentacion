@@ -1595,15 +1595,22 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
         <template>
             <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
                 <!-- Navbar -->
-                <header class="bg-slate-800 border-b border-slate-700 py-4 px-6 flex justify-between items-center">
-                    <h1 class="text-xl font-bold text-emerald-400">Starter App Dashboard</h1>
-                    <div class="flex items-center gap-4">
-                        <span class="text-sm text-slate-300">{{ authStore.user?.name }}</span>
+                <header class="bg-slate-800 border-b border-slate-700 py-4 px-4 sm:px-6 flex flex-col sm:flex-row justify-center sm:justify-between items-center gap-4 text-center sm:text-left">
+                    <!-- Título / Branding -->
+                    <h1 class="text-lg sm:text-xl font-bold text-emerald-400 whitespace-nowrap">
+                        Starter App Dashboard
+                    </h1>
+
+                    <!-- Usuario y Acciones -->
+                    <div class="flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+                        <span class="text-sm text-slate-300 whitespace-nowrap">
+                            {{ authStore.user?.name }}
+                        </span>
                         
                         <router-link 
                             v-if="authStore.userRoles.includes('SUPER_ADMIN')" 
                             to="/admin" 
-                            class="px-3 py-2 rounded-lg text-sm font-medium text-purple-400 hover:text-purple-300 hover:bg-purple-950/40 transition-all flex items-center space-x-2"
+                            class="px-3 py-1.5 rounded-lg text-sm font-medium text-purple-400 hover:text-purple-300 hover:bg-purple-950/40 transition-all flex items-center space-x-2 whitespace-nowrap shrink-0"
                         >
                             <Cog6ToothIcon class="w-4 h-4" />
                             <span>Panel Admin</span>
@@ -1611,7 +1618,7 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
 
                         <button
                             @click="handleLogout"
-                            class="px-3 py-1.5 bg-red-600/80 hover:bg-red-500 text-sm font-medium rounded-lg transition-colors cursor-pointer"
+                            class="px-3 py-1.5 bg-red-600/80 hover:bg-red-500 text-sm font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
                         >
                             Cerrar Sesión
                         </button>
@@ -1668,24 +1675,34 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
         <template>
             <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-between">
                 <!-- Navbar simple -->
-                <header class="py-6 px-8 flex justify-between items-center border-b border-slate-800">
-                    <div class="flex items-center gap-2">
+                <header class="py-4 px-4 sm:px-8 flex flex-col sm:flex-row justify-center sm:justify-between items-center gap-4 border-b border-slate-800 text-center sm:text-left">
+                    <!-- Logotipo / Branding -->
+                    <div class="flex items-center justify-center gap-2 shrink-0">
                         <span class="text-2xl">🌳</span>
-                        <span class="font-bold text-xl text-emerald-400">FamilyTree 2026</span>
+                        <span class="font-bold text-lg sm:text-xl text-emerald-400 whitespace-nowrap">FamilyTree 2026</span>
                     </div>
-                    <div>
+
+                    <!-- Acciones de Usuario -->
+                    <div class="flex items-center justify-center shrink-0">
                         <router-link
                             v-if="authStore.isAuthenticated"
                             to="/dashboard"
-                            class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-semibold transition-colors"
+                            class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap"
                         >
                             Ir al Dashboard
                         </router-link>
-                        <div v-else class="flex gap-4">
-                            <router-link to="/login" class="px-4 py-2 text-slate-300 hover:text-white text-sm font-medium">
+                        
+                        <div v-else class="flex items-center justify-center gap-3 sm:gap-4">
+                            <router-link 
+                                to="/login" 
+                                class="px-3 sm:px-4 py-2 text-slate-300 hover:text-white text-sm font-medium whitespace-nowrap transition-colors"
+                            >
                                 Iniciar Sesión
                             </router-link>
-                            <router-link to="/register" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-semibold transition-colors">
+                            <router-link 
+                                to="/register" 
+                                class="px-3 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap"
+                            >
                                 Registrarse
                             </router-link>
                         </div>
@@ -4119,17 +4136,16 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
 ## Crear el Helper de IP y Contexto
 + Crea el archivo `src/utils/request.utils.js` (o dentro de tu carpeta de utilidades preferida):
     ```js
-    // src/utils/request.utils.js
-
     /**
-     * Normaliza y obtiene la IP real del cliente desde la request
-     */
+    * Normaliza y obtiene la IP real del cliente desde la request
+    */
     const getClientIp = (req) => {
         if (!req) return '127.0.0.1';
 
-        let ip = req.headers?.[x-forwarded-for]?.split(',')[0].trim() 
-            || req.socket?.remoteAddress 
-            || req.ip;
+        let ip =
+            req.headers?.['x-forwarded-for']?.split(',')[0].trim() ||
+            req.socket?.remoteAddress ||
+            req.ip;
 
         if (ip === '::1' || ip === '::ffff:127.0.0.1') {
             return '127.0.0.1';
@@ -4170,8 +4186,8 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
 
         const pool = new Pool({ connectionString: process.env.DATABASE_URL });
         const adapter = new PrismaPg(pool);
-        const prismaRaw = new PrismaClient({ adapter });                // <- Nuevo
-        /* const prisma = new PrismaClient({ adapter }); */     // <- Eliminar
+        const prismaRaw = new PrismaClient({ adapter });                                // <- Nuevo
+        /* const prisma = new PrismaClient({ adapter }); */                             // <- Eliminar
         // Nuevo bloque
         const prisma = prismaRaw.$extends({
             query: {
@@ -4185,6 +4201,7 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
                             try {
                                 const store = auditStorage.getStore();
                                 const userId = store?.userId || null;
+                                const ipAddress = store?.ipAddress || '127.0.0.1';
 
                                 const sanitizedDetails = { ...args.data };
                                 if (sanitizedDetails.password) {
@@ -4196,6 +4213,7 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
                                     action: `${operation.toUpperCase()}_${model.toUpperCase()}`,
                                     entity: model,
                                     entityId: result?.id ? String(result.id) : (args?.where?.id ? String(args.where.id) : 'N/A'),
+                                    ipAddress,
                                     details: JSON.stringify(sanitizedDetails),
                                 };
 
@@ -4217,7 +4235,6 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
                 },
             },
         });
-
 
         module.exports = prisma;
         ```
@@ -4289,6 +4306,7 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
     const bcrypt = require('bcryptjs');
     const jwt = require('jsonwebtoken');
     const prisma = require('../config/prisma');
+    const { getClientIp } = require('../utils/request.utils');  // <- Nuevo
     // ...
     // 2. INICIO DE SESIÓN (LOGIN)
     const login = async (req, res) => {
@@ -4314,7 +4332,8 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
                     await prisma.auditLog.create({
                         data: {
                             action: 'LOGIN_FAILED',
-                            entity: 'User',
+                            entity: 'Auth',
+                            ipAddress: getClientIp(req),    // <- Nuevo
                             details: JSON.stringify({ email, reason: 'Usuario no encontrado', ip: req.ip }),
                         },
                     });
@@ -4334,7 +4353,8 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
                 await prisma.auditLog.create({
                     data: {
                         action: 'LOGIN_FAILED',
-                        entity: 'User',
+                        entity: 'Auth',
+                        ipAddress: getClientIp(req),    // <- Nuevo
                         details: JSON.stringify({ email, reason: 'Contraseña incorrecta', ip: req.ip }),
                     },
                 });
@@ -4353,8 +4373,9 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
             await prisma.auditLog.create({
                 data: {
                     action: 'LOGIN_SUCCESS',
-                    entity: 'User',
+                    entity: 'Auth',
                     entityId: String(user.id),
+                    ipAddress: getClientIp(req),    // <- Nuevo
                     user: { connect: { id: user.id } },
                     details: JSON.stringify({ ip: req.ip, userAgent: req.headers['user-agent'] }),
                 },
@@ -4381,30 +4402,31 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
     // ...
     // 4. CIERRE DE SESIÓN (LOGOUT)
     const logout = async (req, res) => {
-    try {
-        // Nuvo bloque para registrar Logout
-        if (req.user?.id) {
-            await prisma.auditLog.create({
-                data: {
-                    action: 'LOGOUT',
-                    entity: 'User',
-                    entityId: String(req.user.id),
-                    user: { connect: { id: req.user.id } },
-                    details: JSON.stringify({ ip: req.ip }),
-                },
-            });
-        }
+        try {
+            // Registrar Logout
+            if (req.user?.id) {
+                await prisma.auditLog.create({
+                    data: {
+                        action: 'LOGOUT',
+                        entity: 'Auth',
+                        entityId: String(req.user.id),
+                        ipAddress: getClientIp(req),    // <- Nuevo
+                        user: { connect: { id: req.user.id } },
+                        details: JSON.stringify({ ip: req.ip }),
+                    },
+                });
+            }
 
-        // En arquitecturas stateless (JWT en Authorization Header), el servidor confirma
-        // el cierre de sesión para que el Frontend proceda a destruir el token almacenado.
-        return res.status(200).json({
-            status: 'success',
-            message: 'Sesión cerrada correctamente',
-        });
-    } catch (error) {
-        console.error('Error en logout:', error);
-        return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
-    }
+            // En arquitecturas stateless (JWT en Authorization Header), el servidor confirma
+            // el cierre de sesión para que el Frontend proceda a destruir el token almacenado.
+            return res.status(200).json({
+                status: 'success',
+                message: 'Sesión cerrada correctamente',
+            });
+        } catch (error) {
+            console.error('Error en logout:', error);
+            return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+        }
     };
 
     module.exports = { register, login, getMe, logout };
@@ -4643,31 +4665,31 @@ npx prisma studio --url "postgresql://dev_user:dev_password@localhost:5432/local
 
 ## Levantar backend, frontend y cliente de bd en local
 1. Instala la herramienta globalmente en tu WSL:
-```bash
-npm install -g concurrently
-```
+    ```bash
+    npm install -g concurrently
+    ```
 2. Crea un alias o un pequeño script en tu home (~/start_services.sh):
-```bash
-nano ~/start_services.sh
-```
+    ```bash
+    nano ~/start_services.sh
+    ```
 3. Pega lo siguiente dentro del archivo:
-```sh
-#!/bin/bash
-concurrently \
-  --names "BACKEND,PRISMA,FRONTEND" \
-  --prefix-colors "blue,magenta,green" \
-  "cd /home/bazop/projects/family_tree2026/familytree2026-backend && npm run dev" \
-  "cd /home/bazop/projects/family_tree2026/familytree2026-backend && npx prisma studio" \
-  "cd /home/bazop/projects/family_tree2026/familytree2026-frontend && npm run dev"
-```
+    ```sh
+    #!/bin/bash
+    concurrently \
+    --names "BACKEND,PRISMA,FRONTEND" \
+    --prefix-colors "blue,magenta,green" \
+    "cd /home/bazop/projects/family_tree2026/familytree2026-backend && npm run dev" \
+    "cd /home/bazop/projects/family_tree2026/familytree2026-backend && npx prisma studio" \
+    "cd /home/bazop/projects/family_tree2026/familytree2026-frontend && npm run dev"
+    ```
 4. Dale permisos de ejecución:
-```bash
-chmod +x ~/start_services.sh
-```
+    ```bash
+    chmod +x ~/start_services.sh
+    ```
 5. A partir de este momento, solo necesitas abrir tu terminal de WSL y ejecutar:
-```bash
-./start_services.sh
-```
+    ```bash
+    ~/start_services.sh
+    ```
 
 
 
@@ -4694,3 +4716,20 @@ git remote add origin https://github.com/TU_USUARIO/starter-backend.git
 
 
 git remote add origin git@github.com:TU_USUARIO/starter-backend.git
+
+```txt
+"{\"name\":\"Borrar\",\"email\":\"borrar@borrar.borrar\",\"password\":\"[PROTECTED]\",\"roles\":{\"create\":{\"roleId\":\"9294689c-e342-4b15-9540-616c8c06ad31\"}}}"
+```
+
+```json
+{
+    "name":"Borrar",
+    "email":"borrar@borrar.borrar",
+    "password":"[PROTECTED]",
+    "roles": {
+        "create": {
+            "roleId": "9294689c-e342-4b15-9540-616c8c06ad31"
+        }
+    }
+}
+```
