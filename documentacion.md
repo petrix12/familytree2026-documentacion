@@ -4158,6 +4158,7 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
 
 
 ## Implementar funcionalidad a Auditoría y Logs
+### Auditoria para eventos de usuarios y autenticación
 1. Crear el Contexto de Auditoría (`src/middlewares/auditContext.middleware.js`)
     + Crea este archivo para capturar la identidad del usuario conectado (`req.user.id`) en cada petición entrante mediante AsyncLocalStorage de Node.js.
         ```js
@@ -4431,6 +4432,180 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
 
     module.exports = { register, login, getMe, logout };
     ```
+
+### Auditoria para eventos de sistemas
+#### Paso 1: Agregar el modelo SystemLog a Prisma
+1. Abre tu archivo `prisma/schema.prisma` y agrega el modelo para almacenar los logs del sistema:
+    ```prisma
+    model SystemLog {
+        id         String   @id @default(uuid())
+        level      String   @default("ERROR") // ERROR, WARN, INFO
+        message    String
+        stackTrace String?  @db.Text
+        path       String?
+        method     String?
+        statusCode Int?     @default(500)
+        userId     String?
+        createdAt  DateTime @default(now())
+
+        @@map("system_logs")
+    }
+    ```
+2. Ejecuta la migración en tu terminal para impactar Supabase:
+    ```bash
+    npx prisma generate
+    npx prisma migrate dev --name create_system_logs
+    ```
+#### Paso 2: Crear el Middleware Global de Errores
+1. Crea un archivo para el middleware, por ejemplo en `src/middlewares/error.middleware.js`:
+    ```js
+    const { prismaRaw } = require('../config/prisma');
+
+    const errorHandler = async (err, req, res, next) => {
+        const statusCode = err.statusCode || (res.statusCode !== 200 ? res.statusCode : 500);
+        const message = err.message || 'Error interno del servidor';
+
+        console.error(`[SYSTEM ERROR] ${req.method} ${req.originalUrl}:`, err);
+
+        try {
+            // Usamos prismaRaw directamente
+            await prismaRaw.systemLog.create({
+                data: {
+                    level: 'ERROR',
+                    message: message,
+                    stackTrace: err.stack,
+                    path: req.originalUrl,
+                    method: req.method,
+                    statusCode: statusCode,
+                    userId: req.user?.id || null
+                }
+            });
+            console.log('✅ Log de sistema registrado exitosamente en BD');
+        } catch (dbErr) {
+            console.error('⚠️ Falló al insertar el log en la BD:', dbErr.message);
+        }
+
+        res.status(statusCode).json({
+            status: 'error',
+            message: statusCode === 500 ? 'Ha ocurrido un error inesperado en el servidor' : message
+        });
+    };
+
+    module.exports = { errorHandler };
+    ```
+
+#### Paso 2: Registrar el Middleware y Capturadores Globales en Express
+1. En tu archivo principal `src/app.js`, conecta el middleware al final de todas tus rutas. Agrega también los eventos de proceso para fallos fuera del ciclo HTTP:
+    ```js
+    const express = require('express');
+    const cors = require('cors');
+    require('dotenv').config();
+
+    // Middleware para establecer el contexto de auditoría
+    const { setAuditUser } = require('./middlewares/auditContext.middleware');
+    // Middleware para manejo global de errores de sistema
+    const { errorHandler } = require('./middlewares/error.middleware');             // <- Nuevo
+
+    // Rutas
+    const authRoutes = require('./routes/auth.routes');
+    const adminRoutes = require('./routes/admin.routes');
+    // ...
+    /* Inicio nuevo bloque */
+    // --- MANEJO DE ERRORES GLOBALES (Debe ser el último app.use) ---
+    app.use(errorHandler);
+
+    // --- CAPTURA DE ERRORES FUERA DEL CICLO HTTP ---
+    process.on('unhandledRejection', (reason) => {
+        console.error('🔥 [CRITICAL] Promesa no capturada (unhandledRejection):', reason);
+    });
+
+    process.on('uncaughtException', (error) => {
+        console.error('🔥 [CRITICAL] Excepción no controlada (uncaughtException):', error);
+    });
+    /* Fin nuevo bloque */
+
+    // Inicialización del Servidor
+    app.listen(PORT, () => {
+        console.log(`🚀 Servidor ejecutándose en http://localhost:${PORT}`);
+        console.log(`📌 Entorno: ${process.env.NODE_ENV || 'development'}`);
+    });
+    ```
+2. Actualizar `src/config/prisma.js`:
+    ```js
+    const { PrismaClient } = require('@prisma/client');
+    const { PrismaPg } = require('@prisma/adapter-pg');
+    const { Pool } = require('pg');
+    const { auditStorage } = require('../middlewares/auditContext.middleware');
+    require('dotenv').config();
+
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const adapter = new PrismaPg(pool);
+    const prismaRaw = new PrismaClient({ adapter });
+
+    const prisma = prismaRaw.$extends({
+        query: {
+            $allModels: {
+                async $allOperations({ model, operation, args, query }) {
+                    const result = await query(args);
+
+                    const writeOperations = ['create', 'update', 'delete', 'updateMany', 'deleteMany'];
+                    const ignoredModels = ['AuditLog', 'SystemLog', 'system_logs', 'audit_logs'];
+
+                    // Evitar auditar acciones sobre las tablas del sistema / logs
+                    if (writeOperations.includes(operation) && !ignoredModels.includes(model)) {
+                        try {
+                            const store = auditStorage.getStore();
+                            const userId = store?.userId || null;
+                            const ipAddress = store?.ipAddress || '127.0.0.1';
+
+                            const sanitizedDetails = args?.data ? { ...args.data } : {};
+                            if (sanitizedDetails.password) {
+                                sanitizedDetails.password = '[PROTECTED]';
+                            }
+
+                            const auditData = {
+                                action: `${operation.toUpperCase()}_${model.toUpperCase()}`,
+                                entity: model,
+                                entityId: result?.id ? String(result.id) : (args?.where?.id ? String(args.where.id) : 'N/A'),
+                                ipAddress,
+                                details: JSON.stringify(sanitizedDetails),
+                            };
+
+                            if (userId) {
+                                auditData.user = { connect: { id: userId } };
+                            }
+
+                            await prismaRaw.auditLog.create({
+                                data: auditData,
+                            });
+                        } catch (error) {
+                            console.error('Error registrando auditoría en Prisma Extension:', error);
+                        }
+                    }
+
+                    return result;
+                },
+            },
+        },
+    });
+
+    module.exports = prisma;
+    module.exports.prismaRaw = prismaRaw;
+    ```
+3. Probar funcionamiento:
+    + Agregar el siguiente endpoint en `familytree2026-backend/src/app.js`:
+        ```js
+        // Ruta temporal para probar captura de errores
+        app.get('/api/v1/test-error', async (req, res) => {
+            // Simulamos un error no controlado (ej. propiedad indefinida)
+            const nullObject = null;
+            nullObject.triggerError(); 
+        });        
+        ```
+    + Ejecutar:
+        ```bash
+        curl http://localhost:4000/api/v1/test-error
+        ```
 
 
 
