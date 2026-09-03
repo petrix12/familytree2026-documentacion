@@ -114,9 +114,10 @@ Si tienes Docker instalado en tu equipo, esta es la forma más limpia:
 1. Creamos un archivo docker-compose.yml en la raíz de nuestro proyecto backend (lo crearemos formalmente más adelante):
 ```yml
 services:
-  postgres:
+  postgres_dev:
     image: postgres:15-alpine
-    container_name: local_postgres
+    container_name: local_starter_postgres
+    restart: always
     environment:
       POSTGRES_USER: dev_user
       POSTGRES_PASSWORD: dev_password
@@ -124,13 +125,28 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+
+  minio:
+    image: minio/minio:RELEASE.2024-01-18T22-51-28Z
+    container_name: local_starter_minio
+    restart: always
+    ports:
+      - "9000:9000"   # Puerto de la API S3
+      - "9001:9001"   # Consola Web
+    environment:
+      MINIO_ROOT_USER: minio_admin
+      MINIO_ROOT_PASSWORD: minio_password123
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
 
 volumes:
-  pgdata:
+  postgres_data:
+  minio_data:
 ```
 
-#### Opción B: PostgreSQL Instalado Nativo
+#### Opción B: PostgreSQL Instalado Nativo (Solo para BD)
 Si no usas Docker, puedes instalar PostgreSQL directamente en tu sistema operativo (PostgresApp en macOS, Installer en Windows/Linux) y crear una base de datos local llamada `local_starter_db`.
 
 ### 🔑 PARTE 3: Matriz de Variables de Entorno (.env)
@@ -164,6 +180,28 @@ JWT_EXPIRES_IN="7d"
 SUPABASE_URL="https://xxxxxx.supabase.co"
 SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJKV... (tu service_role key)"
 SUPABASE_BUCKET_NAME="app-uploads"
+
+# ==========================================
+# ALMACENAMIENTO S3 (LOCAL - MINIO)
+# ==========================================
+S3_ENDPOINT="http://127.0.0.1:9000"
+S3_REGION="us-east-1"
+S3_ACCESS_KEY_ID="minio_admin"
+S3_SECRET_ACCESS_KEY="minio_password123"
+S3_BUCKET_NAME="app-uploads"
+S3_FORCE_PATH_STYLE="true" # Obligatorio para MinIO y Supabase S3
+S3_PUBLIC_URL="http://localhost:9000/app-uploads"
+
+# ==========================================
+# ALMACENAMIENTO S3 (PRODUCCIÓN - SUPABASE)
+# ==========================================
+# S3_ENDPOINT="https://<PROJECT-ID>.supabase.co/storage/v1/s3"
+# S3_REGION="us-east-1"
+# S3_ACCESS_KEY_ID="<TU_S3_ACCESS_KEY>"
+# S3_SECRET_ACCESS_KEY="<TU_S3_SECRET_KEY>"
+# S3_BUCKET_NAME="app-uploads"
+# S3_FORCE_PATH_STYLE="true"
+# S3_PUBLIC_URL="https://<PROJECT-ID>.supabase.co/storage/v1/object/public/app-uploads"
 ```
 
 
@@ -215,8 +253,23 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  minio:
+    image: minio/minio:RELEASE.2024-01-18T22-51-28Z
+    container_name: local_starter_minio
+    restart: always
+    ports:
+      - "9000:9000"   # Puerto de la API S3
+      - "9001:9001"   # Consola Web
+    environment:
+      MINIO_ROOT_USER: minio_admin
+      MINIO_ROOT_PASSWORD: minio_password123
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+
 volumes:
   postgres_data:
+  minio_data:
 ```
 
 + Crea también un archivo `.gitignore` en la raíz para evitar subir archivos temporales o volúmenes accidentales:
@@ -351,7 +404,13 @@ Esta sección detalla el proceso para estructurar la API REST en Node.js, config
         npm install express @prisma/client bcryptjs jsonwebtoken dotenv cors @supabase/supabase-js
 
         # 4. Instalar dependencias de desarrollo
-        npm install -D prisma nodemon        
+        npm install -D prisma nodemon
+        
+        # 5. Para recibir archivos multipart/form-data en las peticiones HTTP, instalamos multer
+        npm install multer
+
+        # 6. Para interactuar con cualquier servicio S3 (ya sea MinIO en local, Supabase S3, AWS S3 o Cloudflare R2)
+        npm install @aws-sdk/client-s3
         ```
     + Desglose de Paquetes Instalados
         Paquete                 | Tipo          | Propósito
@@ -458,9 +517,110 @@ Esta sección detalla el proceso para estructurar la API REST en Node.js, config
         SUPABASE_URL="https://xxxxxx.supabase.co"
         SUPABASE_SERVICE_ROLE_KEY="tu_service_role_key_aqui"
         SUPABASE_BUCKET_NAME="app-uploads"
-        ```        
+        ```
+6. Cliente de Supabase Storage (`src/config/supabase.js`):
+    + Crea la configuración para conectarte a Supabase Storage con las variables de entorno de tu `.env`:
+        ```js
+        const { createClient } = require('@supabase/supabase-js');
+        require('dotenv').config();
 
-6. Ejecución de la Migración Inicial:
+        const supabaseUrl = process.env.SUPABASE_URL;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+        if (!supabaseUrl || !supabaseKey) {
+            console.warn('⚠️ Las credenciales de Supabase Storage no están configuradas en el archivo .env');
+        }
+
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        module.exports = supabase;
+        ```
+7. Crea un archivo llamado `nodemon.json` en la raíz:
+    ```json
+    {
+        "watch": ["src"],
+        "ext": "js,json",
+        "ignore": [
+            "uploads/*",
+            "prisma/*",
+            ".env",
+            "node_modules/*"
+        ]
+    }
+    ```
+    + Esto obliga a Nodemon a vigilar únicamente la carpeta `src/` y a ignorar cambios en archivos generados dinámicamente.
+8. Middleware de Subida con Multer (`src/middlewares/upload.middleware.js`):
+    + Almacenamos temporalmente el archivo en memoria (memoryStorage) para subir el buffer directamente a Supabase sin tocar el disco del servidor:
+        ```js
+        const multer = require('multer');
+        const fs = require('fs');
+        const path = require('path');
+
+        // Almacenamiento en memoria para Supabase
+        const storage = multer.memoryStorage();
+
+        const fileFilter = (req, file, cb) => {
+            if (file.mimetype.startsWith('image/')) {
+                // Asegurar que la carpeta exista únicamente cuando se recibe una petición de subida
+                const uploadDir = path.join(__dirname, '../../uploads/avatars');
+                if (!fs.existsSync(uploadDir)) {
+                    fs.mkdirSync(uploadDir, { recursive: true });
+                }
+                cb(null, true);
+            } else {
+                cb(new Error('Formato no soportado. Solo se permiten archivos de imagen.'), false);
+            }
+        };
+
+        const upload = multer({
+            storage,
+            fileFilter,
+            limits: {
+                fileSize: 2 * 1024 * 1024, // 2 MB
+            },
+        });
+
+        module.exports = upload;
+        ```
+9. Cliente Agnóstico S3 (`src/config/s3.js`):
+    + Crea este cliente desacoplado que consumirá dinámicamente tu `.env`:
+        ```js
+        const { S3Client, HeadBucketCommand, CreateBucketCommand } = require('@aws-sdk/client-s3');
+        require('dotenv').config();
+
+        const forcePathStyle = process.env.S3_FORCE_PATH_STYLE === 'true';
+
+        const s3Client = new S3Client({
+            region: process.env.S3_REGION || 'us-east-1',
+            endpoint: process.env.S3_ENDPOINT,
+            credentials: {
+                accessKeyId: process.env.S3_ACCESS_KEY_ID,
+                secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+            },
+            forcePathStyle: forcePathStyle,
+        });
+
+        /**
+        * Verifica si el bucket existe en S3/MinIO y lo crea si no existe
+        */
+        const ensureBucketExists = async (bucketName) => {
+            try {
+                await s3Client.send(new HeadBucketCommand({ Bucket: bucketName }));
+            } catch (error) {
+                // Si el bucket no existe (error 404 o NotFound), lo creamos
+                if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+                    console.log(`📦 El bucket '${bucketName}' no existe. Creándolo automáticamente...`);
+                    await s3Client.send(new CreateBucketCommand({ Bucket: bucketName }));
+                    console.log(`✅ Bucket '${bucketName}' creado con éxito.`);
+                } else {
+                    throw error;
+                }
+            }
+        };
+
+        module.exports = { s3Client, ensureBucketExists };
+        ```
+10. Ejecución de la Migración Inicial:
     + Con el contenedor de Docker activo (docker-compose up -d), ejecuta el siguiente comando para generar las tablas físicas en PostgreSQL:
         ```bash
         npx prisma migrate dev --name init_users_and_roles
@@ -472,9 +632,79 @@ Esta sección detalla el proceso para estructurar la API REST en Node.js, config
             ```
         + (Abre en el navegador una consola web interactiva en http://localhost:5555).
 
-## 📑 Backend Base, Carga Inicial de Datos (Seed Script) y Servidor Express
-Esta sección consolida la inicialización del backend en Node.js, la seguridad de repositorio, la carga de datos iniciales (Seed con Prisma 7) y la API REST con Express.
+## Perfil de usuarios
+1. Controlador de Perfil (`src/controllers/profile.controller.js`):
+    + Gestiona la subida del archivo a Supabase, la generación de la URL pública y la actualización del registro User en PostgreSQL con Prisma:
+        ```js
+        const { PutObjectCommand } = require('@aws-sdk/client-s3');
+        const { s3Client, ensureBucketExists } = require('../config/s3');
+        const prisma = require('../config/prisma');
+        const path = require('path');
 
+        const uploadAvatar = async (req, res) => {
+            try {
+                const userId = req.user.id;
+
+                if (!req.file) {
+                    return res.status(400).json({
+                        status: 'fail',
+                        message: 'No se ha adjuntado ningún archivo de imagen',
+                    });
+                }
+
+                const bucketName = process.env.S3_BUCKET_NAME || 'app-uploads';
+
+                // 1. Garantizar que el bucket existe antes de subir
+                await ensureBucketExists(bucketName);
+
+                const fileExt = path.extname(req.file.originalname);
+                const fileName = `avatars/user_${userId}_${Date.now()}${fileExt}`;
+
+                // 2. Subir Buffer mediante S3
+                const uploadParams = {
+                    Bucket: bucketName,
+                    Key: fileName,
+                    Body: req.file.buffer,
+                    ContentType: req.file.mimetype,
+                };
+
+                await s3Client.send(new PutObjectCommand(uploadParams));
+
+                // 3. Construir URL pública
+                const publicUrl = `${process.env.S3_PUBLIC_URL}/${fileName}`;
+
+                // 4. Actualizar usuario en Base de Datos
+                const updatedUser = await prisma.user.update({
+                    where: { id: userId },
+                    data: { avatarUrl: publicUrl },
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                        avatarUrl: true,
+                        createdAt: true,
+                    },
+                });
+
+                return res.status(200).json({
+                    status: 'success',
+                    message: 'Imagen de perfil actualizada correctamente',
+                    data: { user: updatedUser },
+                });
+            } catch (error) {
+                console.error('🔥 Error en uploadAvatar / S3:', error);
+                return res.status(500).json({
+                    status: 'error',
+                    message: 'Error interno del servidor al procesar la imagen',
+                });
+            }
+        };
+
+        module.exports = { uploadAvatar };
+        ```
+
+## 📑 Backend Base, Carga Inicial de Datos (Seed Script) y Servidor Express
++ Esta sección consolida la inicialización del backend en Node.js, la seguridad de repositorio, la carga de datos iniciales (Seed con Prisma 7) y la API REST con Express.
 1. Protección de Archivos Sensibles (`.gitignore`): Antes de realizar cualquier commit, crea el archivo `.gitignore` en la raíz de familytree2026-backend:
     ```gitignore
     # Dependencias
@@ -848,6 +1078,8 @@ Esta fase implementa el registro de usuarios, el inicio de sesión y la emisión
     const { body } = require('express-validator');
     const { register, login } = require('../controllers/auth.controller');
     const validate = require('../middlewares/validate.middleware');
+    const { uploadAvatar } = require('../controllers/profile.controller');
+    const upload = require('../middlewares/upload.middleware');
 
     const router = express.Router();
 
@@ -870,6 +1102,8 @@ Esta fase implementa el registro de usuarios, el inicio de sesión y la emisión
     // Definición de Endpoints
     router.post('/register', registerValidation, register);
     router.post('/login', loginValidation, login);
+    // Ruta para subir/actualizar imagen de perfil
+    router.post('/avatar', authenticateJWT, upload.single('avatar'), uploadAvatar);
 
     module.exports = router;    
     ```
@@ -995,6 +1229,7 @@ Para completar la base de autenticación reutilizable (Starter Kit) y permitir q
                     id: true,
                     email: true,
                     name: true,
+                    avatarUrl: true,
                     createdAt: true,
                     roles: {
                         select: {
@@ -1050,7 +1285,6 @@ Para completar la base de autenticación reutilizable (Starter Kit) y permitir q
 
     module.exports = { register, login, getMe, logout };
     ```
-
 2. Proteger la Ruta en `src/routes/auth.routes.js`:
     Abre `src/routes/auth.routes.js`, importa el middleware `authenticateJWT` y la función `getMe`, e integra la ruta protegida:
     ```js
@@ -1059,6 +1293,8 @@ Para completar la base de autenticación reutilizable (Starter Kit) y permitir q
     const { register, login, getMe, logout } = require('../controllers/auth.controller');
     const { authenticateJWT } = require('../middlewares/auth.middleware');
     const validate = require('../middlewares/validate.middleware');
+    const { uploadAvatar } = require('../controllers/profile.controller');
+    const upload = require('../middlewares/upload.middleware');
 
     const router = express.Router();
 
@@ -1070,6 +1306,7 @@ Para completar la base de autenticación reutilizable (Starter Kit) y permitir q
     // Endpoint protegido para verificar estado de sesión de usuario logueado
     router.get('/me', authenticateJWT, getMe);
     router.post('/logout', authenticateJWT, logout);
+    router.post('/avatar', authenticateJWT, upload.single('avatar'), uploadAvatar);
 
     module.exports = router;
     ```
@@ -1403,7 +1640,10 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
     ```
 
 ### 🎨 Paso 7: Vistas de Autenticación y Dashboard (`src/views/`)
-1. Formulario de Inicio de Sesión (`src/views/LoginView.vue`)
+1. Suministrar icono y logo de la aplicación en:
+    + Icono: `public/favicon.ico`.
+    + Logo: `public/logo.png`.
+2. Formulario de Inicio de Sesión (`src/views/LoginView.vue`)
     + Crea el archivo `src/views/LoginView.vue`:
         ```vue
         <script setup>
@@ -1413,6 +1653,12 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
 
             const authStore = useAuthStore();
             const router = useRouter();
+
+            const hasLogoError = ref(false);
+
+            const handleLogoError = () => {
+                hasLogoError.value = true;
+            };
 
             const form = ref({
                 email: '',
@@ -1432,7 +1678,23 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
         <template>
             <div class="min-h-screen flex items-center justify-center bg-slate-900 text-slate-100 p-4">
                 <div class="w-full max-w-md bg-slate-800 rounded-2xl shadow-xl p-8 border border-slate-700">
-                    <h2 class="text-2xl font-bold text-center text-emerald-400 mb-6">Iniciar Sesión</h2>
+                    
+                    <!-- Logo Centrado -->
+                    <div class="flex flex-col items-center justify-center mb-6">
+                        <router-link to="/" class="flex flex-col items-center group">
+                            <img 
+                                v-if="!hasLogoError" 
+                                src="/logo.png" 
+                                alt="App Logo" 
+                                @error="handleLogoError"
+                                class="w-14 h-14 object-contain mb-3 transition-transform group-hover:scale-105" 
+                            />
+                            <span v-else class="text-4xl mb-2">🌳</span>
+                            <span class="font-bold text-xl text-emerald-400">FamilyTree 2026</span>
+                        </router-link>
+                    </div>
+
+                    <h2 class="text-xl font-bold text-center text-slate-100 mb-6">Iniciar Sesión</h2>
 
                     <div v-if="authStore.error" class="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-300 text-sm">
                         {{ authStore.error }}
@@ -1476,10 +1738,372 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
                     </p>
                 </div>
             </div>
+        </template>      
+        ```
+3. Crear el Layout Principal (`src/layouts/AppLayout.vue`)
+    + Crea un layout que envuelva todas las páginas autenticadas:
+        ```vue
+        <script setup>
+            import { computed } from 'vue';
+            import { useRoute } from 'vue-router';
+            import Navbar from '../components/Navbar.vue';
+
+            const route = useRoute();
+
+            // Extrae el título definido en los meta de la ruta actual
+            const pageTitle = computed(() => route.meta.title || 'Dashboard');
+        </script>
+
+        <template>
+            <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
+                <!-- El Navbar permanece estático y vivo siempre -->
+                <Navbar :title="pageTitle" />
+
+                <!-- Solo esta zona cambia dinámicamente según la ruta sin pestañeo -->
+                <main class="flex-1 w-full">
+                    <router-view v-slot="{ Component }">
+                        <transition name="fade" mode="out-in">
+                            <component :is="Component" />
+                        </transition>
+                    </router-view>
+                </main>
+            </div>
+        </template>
+
+        <style scoped>
+            .fade-enter-active,
+            .fade-leave-active {
+                transition: opacity 0.15s ease;
+            }
+            .fade-enter-from,
+            .fade-leave-to {
+                opacity: 0;
+            }
+        </style>
+        ```
+4. Componente Navbar Reutilizable (`src/components/Navbar.vue`)
+    + Crea el archivo `src/components/Navbar.vue`:
+        ```vue
+        <script setup>
+            import { ref, computed, onMounted, onUnmounted } from 'vue';
+            import { useRouter, useRoute } from 'vue-router';
+            import { useAuthStore } from '../stores/auth.store';
+            import {
+                Cog6ToothIcon, 
+                Squares2X2Icon, 
+                ArrowRightOnRectangleIcon, 
+                ChevronDownIcon 
+            } from '@heroicons/vue/24/outline';
+
+            const props = defineProps({
+                title: {
+                    type: String,
+                    default: 'Dashboard'
+                }
+            });
+
+            const authStore = useAuthStore();
+            const router = useRouter();
+            const route = useRoute();
+
+            const isDropdownOpen = ref(false);
+            const dropdownRef = ref(null);
+
+            // Inicial del nombre para avatar por defecto
+            const userInitial = computed(() => {
+                return authStore.user?.name ? authStore.user.name.charAt(0).toUpperCase() : 'U';
+            });
+
+            // Comprobar si estamos en una ruta administrativa
+            const isAdminArea = computed(() => {
+                return route.path.startsWith('/admin');
+            });
+
+            const toggleDropdown = () => {
+                isDropdownOpen.value = !isDropdownOpen.value;
+            };
+
+            // Cerrar dropdown al hacer clic afuera
+            const handleClickOutside = (event) => {
+                if (dropdownRef.value && !dropdownRef.value.contains(event.target)) {
+                    isDropdownOpen.value = false;
+                }
+            };
+
+            // Control de error al cargar el logo
+            const hasLogoError = ref(false);
+
+            const handleLogoError = () => {
+                hasLogoError.value = true;
+            };
+
+            onMounted(() => {
+                document.addEventListener('click', handleClickOutside);
+            });
+
+            onUnmounted(() => {
+                document.removeEventListener('click', handleClickOutside);
+            });
+
+            const handleLogout = async () => {
+                await authStore.logout();
+                router.push({ name: 'login' });
+            };
+        </script>
+
+        <template>
+            <header class="bg-slate-800 border-b border-slate-700 py-3 px-4 sm:px-6 sticky top-0 z-40">
+                <div class="max-w-7xl mx-auto flex items-center justify-between">
+                
+                    <!-- LADO IZQUIERDO: Logo + Nombre App + Sección Dinámica -->
+                    <div class="flex items-center space-x-3">
+                        <router-link to="/" class="flex items-center space-x-2">
+                            <!-- Ubicación recomendada de la imagen/logo -->
+                            <!-- <img src="/logo.png" alt="App Logo" class="w-8 h-8 object-contain" /> -->
+                            <img 
+                                v-if="!hasLogoError"
+                                src="/logo.png" 
+                                alt="App Logo" 
+                                @error="handleLogoError"
+                                class="w-8 h-8 object-contain" 
+                            />
+                            <span class="font-bold text-slate-100 hidden sm:inline text-lg">Starter App</span>
+                        </router-link>
+
+                        <span class="text-slate-600 font-light text-xl">/</span>
+
+                        <!-- Título dinámico recibido por Props -->
+                        <h1 class="text-base sm:text-lg font-semibold text-emerald-400">
+                            {{ props.title }}
+                        </h1>
+                    </div>
+
+                    <!-- LADO DERECHO: Perfil / Menú Desplegable -->
+                    <div class="relative" ref="dropdownRef">
+                        <button 
+                            @click="toggleDropdown"
+                            class="flex items-center space-x-3 p-1.5 rounded-xl hover:bg-slate-700/60 transition-colors focus:outline-none"
+                        >
+                            <!-- Foto de perfil o Inicial -->
+                            <div v-if="authStore.user?.avatarUrl" class="w-9 h-9 rounded-full overflow-hidden border border-slate-600">
+                                <img :src="authStore.user.avatarUrl" :alt="authStore.user.name" class="w-full h-full object-cover" />
+                            </div>
+                            <div v-else class="w-9 h-9 rounded-full bg-emerald-600/20 text-emerald-400 font-bold flex items-center justify-center border border-emerald-500/40 text-sm">
+                                {{ userInitial }}
+                            </div>
+
+                            <span class="text-sm font-medium text-slate-200 hidden md:inline-block">
+                                {{ authStore.user?.name }}
+                            </span>
+
+                            <ChevronDownIcon class="w-4 h-4 text-slate-400" />
+                        </button>
+
+                        <!-- Menu Desplegable -->
+                        <Transition
+                            enter-active-class="transition duration-100 ease-out"
+                            enter-from-class="transform scale-95 opacity-0"
+                            enter-to-class="transform scale-100 opacity-100"
+                            leave-active-class="transition duration-75 ease-in"
+                            leave-from-class="transform scale-100 opacity-100"
+                            leave-to-class="transform scale-95 opacity-0"
+                        >
+                            <div 
+                                v-if="isDropdownOpen"
+                                class="absolute right-0 mt-2 w-56 bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl py-2 z-50 text-slate-200"
+                            >
+                                <!-- Header pequeño del usuario -->
+                                <div class="px-4 py-2 border-b border-slate-700/60">
+                                    <p class="text-xs text-slate-400">Conectado como</p>
+                                    <p class="text-sm font-semibold truncate text-slate-100">{{ authStore.user?.email }}</p>
+                                </div>
+
+                                <!-- Item 1: Configuración / Perfil -->
+                                <router-link 
+                                    to="/profile" 
+                                    @click="isDropdownOpen = false"
+                                    class="flex items-center space-x-2.5 px-4 py-2.5 text-sm hover:bg-slate-700/50 transition-colors"
+                                >
+                                    <Cog6ToothIcon class="w-4 h-4 text-slate-400" />
+                                    <span>Configuración</span>
+                                </router-link>
+
+                                <!-- Item 2: Alternar entre Admin y Dashboard de forma profesional -->
+                                <router-link 
+                                    v-if="authStore.userRoles.includes('SUPER_ADMIN') && !isAdminArea" 
+                                    to="/admin" 
+                                    @click="isDropdownOpen = false"
+                                    class="flex items-center space-x-2.5 px-4 py-2.5 text-sm hover:bg-slate-700/50 text-purple-400 transition-colors"
+                                >
+                                    <Squares2X2Icon class="w-4 h-4" />
+                                    <span>Panel Admin</span>
+                                </router-link>
+
+                                <router-link 
+                                    v-if="isAdminArea" 
+                                    to="/dashboard" 
+                                    @click="isDropdownOpen = false"
+                                    class="flex items-center space-x-2.5 px-4 py-2.5 text-sm hover:bg-slate-700/50 text-emerald-400 transition-colors"
+                                >
+                                    <Squares2X2Icon class="w-4 h-4" />
+                                    <span>Dashboard</span>
+                                </router-link>
+
+                                <div class="border-t border-slate-700/60 my-1"></div>
+
+                                <!-- Item 3: Cerrar sesión -->
+                                <button 
+                                    @click="handleLogout"
+                                    class="w-full text-left flex items-center space-x-2.5 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                                >
+                                    <ArrowRightOnRectangleIcon class="w-4 h-4" />
+                                    <span>Cerrar sesión</span>
+                                </button>
+                            </div>
+                        </Transition>
+                    </div>
+                </div>
+            </header>
+        </template>
+        ```
+5. Vista de Configuración / Perfil (`src/views/ProfileView.vue`)
+    + Crearemos la nueva pantalla de perfil limpia y estructurada:
+        ```vue
+        <script setup>
+            import { ref } from 'vue';
+            import { useAuthStore } from '../stores/auth.store';
+            import { UserIcon, KeyIcon, ChevronLeftIcon, CameraIcon } from '@heroicons/vue/24/outline';
+
+            const authStore = useAuthStore();
+            const fileInputRef = ref(null);
+            const saving = ref(false);
+
+            const profileForm = ref({
+                name: authStore.user?.name || '',
+                email: authStore.user?.email || '',
+                currentPassword: '',
+                newPassword: '',
+                avatarUrl: authStore.user?.avatarUrl || null,
+                avatarFile: null
+            });
+
+            const handleAvatarChange = (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    profileForm.value.avatarFile = file;
+                    profileForm.value.avatarUrl = URL.createObjectURL(file);
+                }
+            };
+
+            const removeAvatar = () => {
+                profileForm.value.avatarFile = null;
+                profileForm.value.avatarUrl = null;
+                if (fileInputRef.value) fileInputRef.value.value = '';
+            };
+
+            const updateProfile = async () => {
+                saving.value = true;
+                try {
+                    // Aquí llamaremos al endpoint PUT /api/v1/auth/profile
+                    // usando FormData para enviar avatarFile, name, passwords, etc.
+                } finally {
+                    saving.value = false;
+                }
+            };
+        </script>
+
+        <template>
+            <div class="max-w-4xl mx-auto px-4 py-8">            
+                <!-- Botón de retorno al Dashboard -->
+                <div class="mb-6">
+                    <router-link 
+                        to="/dashboard" 
+                        class="inline-flex items-center space-x-2 text-sm text-slate-400 hover:text-white transition-colors group"
+                    >
+                        <ChevronLeftIcon class="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" />
+                        <span>Volver al Dashboard</span>
+                    </router-link>
+                </div>
+
+                <div class="mb-6">
+                    <h2 class="text-2xl font-bold text-slate-100">Mi Perfil</h2>
+                    <p class="text-sm text-slate-400">Administra tu información personal y seguridad de la cuenta.</p>
+                </div>
+
+                <form @submit.prevent="updateProfile" class="space-y-6">
+                    <!-- Sección Avatar & Datos Básicos -->
+                    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-xl">
+                        <h3 class="text-lg font-semibold text-slate-200 mb-4 flex items-center gap-2">
+                            <UserIcon class="w-5 h-5 text-emerald-400" />
+                            Información Personal
+                        </h3>
+
+                        <div class="flex flex-col sm:flex-row items-center gap-6 mb-6">
+                            <div class="relative w-24 h-24 rounded-full overflow-hidden bg-slate-700 border-2 border-slate-600 flex items-center justify-center group">
+                                <img v-if="profileForm.avatarUrl" :src="profileForm.avatarUrl" class="w-full h-full object-cover" />
+                                <span v-else class="text-3xl font-bold text-emerald-400">
+                                    {{ profileForm.name ? profileForm.name.charAt(0).toUpperCase() : 'U' }}
+                                </span>
+                            </div>
+
+                            <div class="flex flex-col space-y-2 text-center sm:text-left">
+                                <div class="flex gap-3">
+                                    <label class="cursor-pointer px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-xl transition-colors">
+                                        <span>Cambiar Foto</span>
+                                        <input ref="fileInputRef" type="file" accept="image/*" class="hidden" @change="handleAvatarChange" />
+                                    </label>
+
+                                    <button v-if="profileForm.avatarUrl" type="button" @click="removeAvatar" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-xs font-semibold text-red-400 rounded-xl transition-colors">
+                                        Quitar
+                                    </button>
+                                </div>
+                                <p class="text-xs text-slate-500">JPG, PNG o WEBP. Máximo 2MB.</p>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Nombre Completo</label>
+                                <input v-model="profileForm.name" type="text" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Correo Electrónico</label>
+                                <input v-model="profileForm.email" type="email" disabled class="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-3.5 py-2.5 text-sm text-slate-500 cursor-not-allowed" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sección Seguridad -->
+                    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-xl">
+                        <h3 class="text-lg font-semibold text-slate-200 mb-4 flex items-center gap-2">
+                            <KeyIcon class="w-5 h-5 text-emerald-400" />
+                            Cambiar Contraseña
+                        </h3>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Contraseña Actual</label>
+                                <input v-model="profileForm.currentPassword" type="password" placeholder="••••••••" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Nueva Contraseña</label>
+                                <input v-model="profileForm.newPassword" type="password" placeholder="••••••••" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end">
+                        <button type="submit" :disabled="saving" class="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-xl disabled:opacity-50 transition-colors shadow-lg">
+                            {{ saving ? 'Guardando...' : 'Guardar Cambios' }}
+                        </button>
+                    </div>
+                </form>
+            </div>
         </template>        
         ```
-
-2. Formulario de Registro (`src/views/RegisterView.vue`)
+6. Formulario de Registro (`src/views/RegisterView.vue`)
     + Crea el archivo `src/views/RegisterView.vue`:
         ```vue
         <script setup>
@@ -1489,6 +2113,12 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
 
             const authStore = useAuthStore();
             const router = useRouter();
+
+            const hasLogoError = ref(false);
+
+            const handleLogoError = () => {
+                hasLogoError.value = true;
+            };
 
             const form = ref({
                 firstName: '',
@@ -1510,7 +2140,23 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
         <template>
             <div class="min-h-screen flex items-center justify-center bg-slate-900 text-slate-100 p-4">
                 <div class="w-full max-w-md bg-slate-800 rounded-2xl shadow-xl p-8 border border-slate-700">
-                    <h2 class="text-2xl font-bold text-center text-emerald-400 mb-6">Crear Cuenta</h2>
+                    
+                    <!-- Logo Centrado -->
+                    <div class="flex flex-col items-center justify-center mb-6">
+                        <router-link to="/" class="flex flex-col items-center group">
+                            <img 
+                                v-if="!hasLogoError" 
+                                src="/logo.png" 
+                                alt="App Logo" 
+                                @error="handleLogoError"
+                                class="w-14 h-14 object-contain mb-3 transition-transform group-hover:scale-105" 
+                            />
+                            <span v-else class="text-4xl mb-2">🌳</span>
+                            <span class="font-bold text-xl text-emerald-400">FamilyTree 2026</span>
+                        </router-link>
+                    </div>
+
+                    <h2 class="text-xl font-bold text-center text-slate-100 mb-6">Crear Cuenta</h2>
 
                     <div v-if="authStore.error" class="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-300 text-sm">
                         {{ authStore.error }}
@@ -1579,12 +2225,10 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
             </div>
         </template>
         ```
-
-3. Vista Protegida del Dashboard (`src/views/DashboardView.vue`)
+7. Vista Protegida del Dashboard (`src/views/DashboardView.vue`)
     + Crea el archivo `src/views/DashboardView.vue`:
         ```vue
         <script setup>
-            import { Cog6ToothIcon } from '@heroicons/vue/24/outline';
             import { useRouter } from 'vue-router';
             import { useAuthStore } from '../stores/auth.store';
 
@@ -1599,37 +2243,6 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
 
         <template>
             <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
-                <!-- Navbar -->
-                <header class="bg-slate-800 border-b border-slate-700 py-4 px-4 sm:px-6 flex flex-col sm:flex-row justify-center sm:justify-between items-center gap-4 text-center sm:text-left">
-                    <!-- Título / Branding -->
-                    <h1 class="text-lg sm:text-xl font-bold text-emerald-400 whitespace-nowrap">
-                        Starter App Dashboard
-                    </h1>
-
-                    <!-- Usuario y Acciones -->
-                    <div class="flex flex-wrap items-center justify-center gap-3 sm:gap-4">
-                        <span class="text-sm text-slate-300 whitespace-nowrap">
-                            {{ authStore.user?.name }}
-                        </span>
-                        
-                        <router-link 
-                            v-if="authStore.userRoles.includes('SUPER_ADMIN')" 
-                            to="/admin" 
-                            class="px-3 py-1.5 rounded-lg text-sm font-medium text-purple-400 hover:text-purple-300 hover:bg-purple-950/40 transition-all flex items-center space-x-2 whitespace-nowrap shrink-0"
-                        >
-                            <Cog6ToothIcon class="w-4 h-4" />
-                            <span>Panel Admin</span>
-                        </router-link>
-
-                        <button
-                            @click="handleLogout"
-                            class="px-3 py-1.5 bg-red-600/80 hover:bg-red-500 text-sm font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                        >
-                            Cerrar Sesión
-                        </button>
-                    </div>
-                </header>
-
                 <!-- Main Content -->
                 <main class="flex-1 p-6 max-w-4xl mx-auto w-full">
                     <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-lg">
@@ -1641,12 +2254,12 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
                             <p><strong class="text-slate-100">Correo:</strong> {{ authStore.user?.email }}</p>
                             <p>
                                 <strong class="text-slate-100">Roles:</strong>
-                                    <span
-                                        v-for="role in authStore.userRoles"
-                                        :key="role"
-                                        class="ml-2 inline-block px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold rounded"
-                                    >
-                                        {{ role }}
+                                <span
+                                    v-for="role in authStore.userRoles"
+                                    :key="role"
+                                    class="ml-2 inline-block px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold rounded"
+                                >
+                                    {{ role }}
                                 </span>
                             </p>
                         </div>
@@ -1655,8 +2268,7 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
             </div>
         </template>
         ```
-
-4. Limpiar `src/App.vue`:
+8. Limpiar `src/App.vue`:
     + Abre `src/App.vue` y reemplaza todo su contenido con esto:
         ```vue
         <script setup>
@@ -1667,14 +2279,19 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
             <RouterView />
         </template>
         ```
-
-5. Rediseñar la Landing Page (`src/views/HomeView.vue`)
+9. Rediseñar la Landing Page (`src/views/HomeView.vue`)
     + Reemplaza el contenido de `src/views/HomeView.vue` para que la raíz / muestre una bienvenida profesional:
         ```vue
         <script setup>
+            import { ref } from 'vue';
             import { useAuthStore } from '../stores/auth.store';
 
             const authStore = useAuthStore();
+            const hasLogoError = ref(false);
+
+            const handleLogoError = () => {
+                hasLogoError.value = true;
+            };
         </script>
 
         <template>
@@ -1682,10 +2299,17 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
                 <!-- Navbar simple -->
                 <header class="py-4 px-4 sm:px-8 flex flex-col sm:flex-row justify-center sm:justify-between items-center gap-4 border-b border-slate-800 text-center sm:text-left">
                     <!-- Logotipo / Branding -->
-                    <div class="flex items-center justify-center gap-2 shrink-0">
-                        <span class="text-2xl">🌳</span>
+                    <router-link to="/" class="flex items-center justify-center gap-2.5 shrink-0 group">
+                        <img 
+                            v-if="!hasLogoError" 
+                            src="/logo.png" 
+                            alt="App Logo" 
+                            @error="handleLogoError"
+                            class="w-8 h-8 object-contain transition-transform group-hover:scale-105" 
+                        />
+                        <span v-else class="text-2xl">🌳</span>
                         <span class="font-bold text-lg sm:text-xl text-emerald-400 whitespace-nowrap">FamilyTree 2026</span>
-                    </div>
+                    </router-link>
 
                     <!-- Acciones de Usuario -->
                     <div class="flex items-center justify-center shrink-0">
@@ -1715,7 +2339,19 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
                 </header>
 
                 <!-- Hero Section -->
-                <main class="flex-1 flex flex-col items-center justify-center text-center px-4 max-w-3xl mx-auto">
+                <main class="flex-1 flex flex-col items-center justify-center text-center px-4 max-w-3xl mx-auto py-12">
+                    <!-- Logo Prominente en la landing -->
+                    <div class="mb-6 flex justify-center">
+                        <img 
+                            v-if="!hasLogoError" 
+                            src="/logo.png" 
+                            alt="App Logo" 
+                            @error="handleLogoError"
+                            class="w-20 h-20 sm:w-24 sm:h-24 object-contain drop-shadow-[0_10px_15px_rgba(16,185,129,0.2)]" 
+                        />
+                        <span v-else class="text-6xl">🌳</span>
+                    </div>
+
                     <span class="px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold rounded-full mb-6">
                         Starter Kit 2026
                     </span>
@@ -1732,7 +2368,7 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
                         >
                             {{ authStore.isAuthenticated ? 'Ir a mi Panel' : 'Comenzar Ahora' }}
                         </router-link>
-                    </div>
+                    </div>          
                 </main>
 
                 <!-- Footer -->
@@ -1742,8 +2378,7 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
             </div>
         </template>
         ```
-
-6. Crear Vista 404 (`src/views/NotFoundView.vue`)
+10. Crear Vista 404 (`src/views/NotFoundView.vue`)
     + Crea el archivo `src/views/NotFoundView.vue`:
         ```vue
         <template>
@@ -1762,20 +2397,61 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
             </div>
         </template>
         ```
-7. Actualizar las rutas en `src/router/index.js`
+11. Actualizar las rutas en `src/router/index.js`
     + Añade la ruta comodín al final del arreglo routes en `src/router/index.js`:
         ```js
-        import NotFoundView from '../views/NotFoundView.vue';
-
-        // En la lista de rutas:
+        // ...
         routes: [
-            { path: '/', name: 'home', component: HomeView },
-            { path: '/login', name: 'login', component: LoginView, meta: { requiresGuest: true } },
-            { path: '/register', name: 'register', component: RegisterView, meta: { requiresGuest: true } },
-            { path: '/dashboard', name: 'dashboard', component: DashboardView, meta: { requiresAuth: true } },
-            // Comodín para capturar cualquier ruta inexistente
-            { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView },
-        ]
+            { path: '/', name: 'home', component: () => import('@/views/HomeView.vue') },
+            { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { requiresGuest: true } },
+            { path: '/register', name: 'register', component: () => import('@/views/RegisterView.vue'), meta: { requiresGuest: true } },
+            {
+                // Rutas protegidas que comparten el mismo Navbar sin pestañeos
+                path: '/',
+                component: () => import('@/layouts/AppLayout.vue'),
+                meta: { requiresAuth: true },
+                children: [
+                    {
+                        path: 'dashboard',
+                        name: 'dashboard',
+                        component: () => import('@/views/DashboardView.vue'),
+                        meta: { title: 'Dashboard' }
+                    },
+                    {
+                        path: 'profile',
+                        name: 'profile',
+                        component: () => import('@/views/ProfileView.vue'),
+                        meta: { title: 'Configuración de Perfil' }
+                    },
+                    { 
+                        path: '/admin', 
+                        name: 'admin-dashboard', 
+                        component: () => import('@/views/admin/AdminDashboardView.vue'), 
+                        meta: { title: 'Panel de Administración', requiresRole: 'SUPER_ADMIN' } 
+                    },
+                    {
+                        path: 'admin/users',
+                        name: 'admin-users',
+                        component: () => import('@/views/admin/UsersAdminView.vue'),
+                        meta: { title: 'Gestión de Usuarios', requiresRole: 'SUPER_ADMIN' }
+                    },
+                    { 
+                        path: '/admin/roles', 
+                        name: 'admin-roles', 
+                        component: () => import('@/views/admin/RolesAdminView.vue'), 
+                        meta: { title: 'Roles y Permisos', requiresRole: 'SUPER_ADMIN' } 
+                    },
+                    { 
+                        path: '/admin/audit-logs', 
+                        name: 'admin-audit-logs', 
+                        component: () => import('@/views/admin/AuditLogsView.vue'), 
+                        meta: { title: 'Registros de Auditoría', requiresRole: 'SUPER_ADMIN' } 
+                    },               
+                ]
+            },
+            { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue') },  
+        ],
+        // ...
         ```
 
 
@@ -3264,176 +3940,177 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
     + Crea el componente `RolesAdminView.vue` para la interfaz de gestión de roles y asignación de permisos:
         ```vue
         <template>
-            <div class="p-6 max-w-7xl mx-auto">
-                <!-- Botón Volver al Panel -->
-                <div class="mb-6">
-                    <router-link 
-                        to="/admin" 
-                        class="inline-flex items-center space-x-2 text-sm text-purple-400 hover:text-purple-300 transition-colors group"
-                    >
-                        <ChevronLeftIcon class="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" />
-                        <span>Volver al Panel Admin</span>
-                    </router-link>
-                </div>
-
-                <!-- Encabezado y Acción -->
-                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-                    <div>
-                        <h1 class="text-2xl font-bold text-white">Roles y Permisos</h1>
-                        <p class="text-slate-400 text-sm mt-1">
-                            Administra los roles del sistema y configura las acciones permitidas para cada uno.
-                        </p>
+            <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
+                <div class="p-6 max-w-7xl mx-auto">
+                    <!-- Botón Volver al Panel -->
+                    <div class="mb-6">
+                        <router-link 
+                            to="/admin" 
+                            class="inline-flex items-center space-x-2 text-sm text-purple-400 hover:text-purple-300 transition-colors group"
+                        >
+                            <ChevronLeftIcon class="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" />
+                            <span>Volver al Panel Admin</span>
+                        </router-link>
                     </div>
-                    <button 
-                        @click="openModal()"
-                        class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-medium rounded-xl transition-colors shadow-lg shadow-purple-600/30"
-                    >
-                        <PlusIcon class="w-5 h-5" />
-                        <span>Nuevo Rol</span>
-                    </button>
-                </div>        
 
-                <!-- Tabla de Roles -->
-                <div class="w-full bg-slate-800/60 border border-slate-700/60 rounded-2xl overflow-x-auto shadow-xl">
-                    <table class="w-full text-left text-sm text-slate-300">
-                        <thead class="bg-slate-900/50 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                            <tr>
-                                <th class="px-6 py-3">Nombre del Rol</th>
-                                <th class="px-6 py-3">Descripción</th>
-                                <th class="px-6 py-3">Usuarios</th>
-                                <th class="px-6 py-3">Permisos Asignados</th>
-                                <th class="px-6 py-3 text-right">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-700/50">
-                            <tr v-for="role in roles" :key="role.id" class="hover:bg-slate-700/30 transition-colors">
-                                <td class="px-6 py-4 font-semibold text-white">
-                                    <span class="px-2.5 py-1 rounded-full text-xs font-bold border" :class="getRoleBadgeClass(role.name)">
-                                        {{ role.name }}
-                                    </span>
-                                </td>
-                                <td class="px-6 py-4 text-slate-400 max-w-xs truncate">{{ role.description || 'Sin descripción' }}</td>
-                                <td class="px-6 py-4 text-slate-300">{{ role.userCount }} usuario(s)</td>
-                                <!-- Columna Permisos Asignados -->
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <!-- Caso SUPER_ADMIN -->
-                                    <span 
-                                        v-if="role.name === 'SUPER_ADMIN'"
-                                        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/20"
-                                    >
-                                        Acceso Total (Global)
-                                    </span>
-
-                                    <!-- Caso otros roles -->
-                                    <span 
-                                        v-else
-                                        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-slate-700/50 text-slate-300 border border-slate-600/50"
-                                    >
-                                        {{ role.permissions ? role.permissions.length : 0 }} permiso(s)
-                                    </span>
-                                </td>
-                                <!-- Columna Acciones en la tabla -->
-                                <td class="px-6 py-4 whitespace-nowrap text-right">
-                                    <div class="flex items-center justify-end gap-2">
-                                        <button 
-                                            @click="openModal(role)"
-                                            class="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors"
-                                            title="Editar rol"
-                                        >
-                                            <PencilIcon class="w-4 h-4" />
-                                        </button>
-                                        
-                                        <button 
-                                            v-if="role.name !== 'SUPER_ADMIN'"
-                                            @click="confirmDelete(role)"
-                                            class="p-2 text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition-colors"
-                                            title="Eliminar rol"
-                                        >
-                                            <TrashIcon class="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- MODAL CREACIÓN / EDICIÓN -->
-                <div 
-                    v-if="isModalOpen" 
-                    class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-3 sm:p-4"
-                >
-                    <!-- Contenedor Principal: Limita la altura a max 90% de la pantalla -->
-                    <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
-                        
-                        <!-- Header (Fijo arriba) -->
-                        <div class="p-4 sm:p-6 border-b border-slate-700 flex justify-between items-center shrink-0">
-                            <h2 class="text-lg font-bold text-white">{{ targetRole ? 'Editar Rol' : 'Crear Nuevo Rol' }}</h2>
-                            <button type="button" @click="isModalOpen = false" class="text-slate-400 hover:text-white p-1">✕</button>
+                    <!-- Encabezado y Acción -->
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                        <div>
+                            <p class="text-slate-400 text-sm mt-1">
+                                Administra los roles del sistema y configura las acciones permitidas para cada uno.
+                            </p>
                         </div>
+                        <button 
+                            @click="openModal()"
+                            class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-medium rounded-xl transition-colors shadow-lg shadow-purple-600/30"
+                        >
+                            <PlusIcon class="w-5 h-5" />
+                            <span>Nuevo Rol</span>
+                        </button>
+                    </div>        
 
-                        <!-- Formulario completo integrado con scroll vertical interno -->
-                        <form @submit.prevent="saveRole" class="flex flex-col flex-1 overflow-hidden min-h-0">
+                    <!-- Tabla de Roles -->
+                    <div class="w-full bg-slate-800/60 border border-slate-700/60 rounded-2xl overflow-x-auto shadow-xl">
+                        <table class="w-full text-left text-sm text-slate-300">
+                            <thead class="bg-slate-900/50 text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                                <tr>
+                                    <th class="px-6 py-3">Nombre del Rol</th>
+                                    <th class="px-6 py-3">Descripción</th>
+                                    <th class="px-6 py-3">Usuarios</th>
+                                    <th class="px-6 py-3">Permisos Asignados</th>
+                                    <th class="px-6 py-3 text-right">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-700/50">
+                                <tr v-for="role in roles" :key="role.id" class="hover:bg-slate-700/30 transition-colors">
+                                    <td class="px-6 py-4 font-semibold text-white">
+                                        <span class="px-2.5 py-1 rounded-full text-xs font-bold border" :class="getRoleBadgeClass(role.name)">
+                                            {{ role.name }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-slate-400 max-w-xs truncate">{{ role.description || 'Sin descripción' }}</td>
+                                    <td class="px-6 py-4 text-slate-300">{{ role.userCount }} usuario(s)</td>
+                                    <!-- Columna Permisos Asignados -->
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <!-- Caso SUPER_ADMIN -->
+                                        <span 
+                                            v-if="role.name === 'SUPER_ADMIN'"
+                                            class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/20"
+                                        >
+                                            Acceso Total (Global)
+                                        </span>
+
+                                        <!-- Caso otros roles -->
+                                        <span 
+                                            v-else
+                                            class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-slate-700/50 text-slate-300 border border-slate-600/50"
+                                        >
+                                            {{ role.permissions ? role.permissions.length : 0 }} permiso(s)
+                                        </span>
+                                    </td>
+                                    <!-- Columna Acciones en la tabla -->
+                                    <td class="px-6 py-4 whitespace-nowrap text-right">
+                                        <div class="flex items-center justify-end gap-2">
+                                            <button 
+                                                @click="openModal(role)"
+                                                class="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors"
+                                                title="Editar rol"
+                                            >
+                                                <PencilIcon class="w-4 h-4" />
+                                            </button>
+                                            
+                                            <button 
+                                                v-if="role.name !== 'SUPER_ADMIN'"
+                                                @click="confirmDelete(role)"
+                                                class="p-2 text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition-colors"
+                                                title="Eliminar rol"
+                                            >
+                                                <TrashIcon class="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- MODAL CREACIÓN / EDICIÓN -->
+                    <div 
+                        v-if="isModalOpen" 
+                        class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-3 sm:p-4"
+                    >
+                        <!-- Contenedor Principal: Limita la altura a max 90% de la pantalla -->
+                        <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
                             
-                            <!-- Cuerpo scrolleable -->
-                            <div class="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1">
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Nombre del Rol</label>
-                                    <input 
-                                        v-model="form.name" 
-                                        type="text" 
-                                        required 
-                                        :disabled="targetRole?.name === 'SUPER_ADMIN'"
-                                        class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-purple-500 disabled:opacity-50"
-                                        placeholder="Ej: EDITOR"
-                                    />
-                                </div>
+                            <!-- Header (Fijo arriba) -->
+                            <div class="p-4 sm:p-6 border-b border-slate-700 flex justify-between items-center shrink-0">
+                                <h2 class="text-lg font-bold text-white">{{ targetRole ? 'Editar Rol' : 'Crear Nuevo Rol' }}</h2>
+                                <button type="button" @click="isModalOpen = false" class="text-slate-400 hover:text-white p-1">✕</button>
+                            </div>
 
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Descripción</label>
-                                    <input 
-                                        v-model="form.description" 
-                                        type="text" 
-                                        class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-purple-500"
-                                        placeholder="Descripción breve de responsabilidades"
-                                    />
-                                </div>
-
-                                <!-- Asignación de Permisos Agrupados por Módulo -->
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-3">Permisos Asignados</label>
-                                    
-                                    <div v-if="form.name === 'SUPER_ADMIN'" class="p-4 bg-purple-950/40 border border-purple-800/50 rounded-xl text-purple-300 text-xs">
-                                        El rol SUPER_ADMIN cuenta con acceso absoluto e irrestricto a todas las funcionalidades del sistema.
+                            <!-- Formulario completo integrado con scroll vertical interno -->
+                            <form @submit.prevent="saveRole" class="flex flex-col flex-1 overflow-hidden min-h-0">
+                                
+                                <!-- Cuerpo scrolleable -->
+                                <div class="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1">
+                                    <div>
+                                        <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Nombre del Rol</label>
+                                        <input 
+                                            v-model="form.name" 
+                                            type="text" 
+                                            required 
+                                            :disabled="targetRole?.name === 'SUPER_ADMIN'"
+                                            class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-purple-500 disabled:opacity-50"
+                                            placeholder="Ej: EDITOR"
+                                        />
                                     </div>
-                                    
-                                    <div v-else class="space-y-4">
-                                        <div v-for="(perms, moduleName) in groupedPermissions" :key="moduleName" class="bg-slate-900/60 p-4 rounded-xl border border-slate-700/50">
-                                            <h4 class="text-xs font-bold text-purple-400 uppercase mb-3">{{ moduleName }}</h4>
-                                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                                                <label v-for="perm in perms" :key="perm.id" class="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        :value="perm.action" 
-                                                        v-model="form.permissions"
-                                                        class="rounded border-slate-700 bg-slate-800 text-purple-600 focus:ring-purple-500"
-                                                    />
-                                                    <span class="break-all">{{ perm.action }}</span>
-                                                </label>
+
+                                    <div>
+                                        <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Descripción</label>
+                                        <input 
+                                            v-model="form.description" 
+                                            type="text" 
+                                            class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-purple-500"
+                                            placeholder="Descripción breve de responsabilidades"
+                                        />
+                                    </div>
+
+                                    <!-- Asignación de Permisos Agrupados por Módulo -->
+                                    <div>
+                                        <label class="block text-xs font-semibold text-slate-300 uppercase mb-3">Permisos Asignados</label>
+                                        
+                                        <div v-if="form.name === 'SUPER_ADMIN'" class="p-4 bg-purple-950/40 border border-purple-800/50 rounded-xl text-purple-300 text-xs">
+                                            El rol SUPER_ADMIN cuenta con acceso absoluto e irrestricto a todas las funcionalidades del sistema.
+                                        </div>
+                                        
+                                        <div v-else class="space-y-4">
+                                            <div v-for="(perms, moduleName) in groupedPermissions" :key="moduleName" class="bg-slate-900/60 p-4 rounded-xl border border-slate-700/50">
+                                                <h4 class="text-xs font-bold text-purple-400 uppercase mb-3">{{ moduleName }}</h4>
+                                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                                    <label v-for="perm in perms" :key="perm.id" class="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            :value="perm.action" 
+                                                            v-model="form.permissions"
+                                                            class="rounded border-slate-700 bg-slate-800 text-purple-600 focus:ring-purple-500"
+                                                        />
+                                                        <span class="break-all">{{ perm.action }}</span>
+                                                    </label>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
 
-                            <!-- Footer con Botones (Fijo abajo) -->
-                            <div class="flex justify-end space-x-3 p-4 sm:p-6 border-t border-slate-700 bg-slate-800/90 shrink-0">
-                                <button type="button" @click="isModalOpen = false" class="px-4 py-2 text-sm font-medium text-slate-400 hover:text-white">Cancelar</button>
-                                <button type="submit" :disabled="saving" class="px-5 py-2 bg-purple-600 hover:bg-purple-500 text-white font-medium rounded-xl text-sm transition-all shadow-lg shadow-purple-600/20">
-                                    {{ saving ? 'Guardando...' : 'Guardar Rol' }}
-                                </button>
-                            </div>
-                        </form>
+                                <!-- Footer con Botones (Fijo abajo) -->
+                                <div class="flex justify-end space-x-3 p-4 sm:p-6 border-t border-slate-700 bg-slate-800/90 shrink-0">
+                                    <button type="button" @click="isModalOpen = false" class="px-4 py-2 text-sm font-medium text-slate-400 hover:text-white">Cancelar</button>
+                                    <button type="submit" :disabled="saving" class="px-5 py-2 bg-purple-600 hover:bg-purple-500 text-white font-medium rounded-xl text-sm transition-all shadow-lg shadow-purple-600/20">
+                                        {{ saving ? 'Guardando...' : 'Guardar Rol' }}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -3789,215 +4466,216 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
 1. Creamos la vista `src/views/admin/AuditLogsView.vue`:
     ```vue
     <template>
-        <div class="p-6 max-w-7xl mx-auto space-y-6">
-            <!-- Botón de retorno al Panel Admin -->
-            <div class="mb-6">
-                <router-link 
-                    to="/admin" 
-                    class="inline-flex items-center space-x-2 text-sm text-yellow-400 hover:text-yellow-300 transition-colors group"
-                >
-                    <ChevronLeftIcon class="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" />
-                    <span>Volver al Panel Admin</span>
-                </router-link>
-            </div>
-            <!-- Header -->
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Auditoría y Registros del Sistema</h1>
-                    <p class="text-sm text-slate-500 dark:text-slate-400">Historial detallado de actividad y acciones ejecutadas.</p>
-                </div>
-                <button 
-                    @click="fetchLogs" 
-                    class="inline-flex items-center gap-2 px-4 py-2 bg-yellow-800 hover:bg-yellow-700 text-white rounded-xl text-sm font-medium transition-colors w-fit"
-                >
-                    <span>Refrescar</span>
-                </button>
-            </div>
-
-            <!-- Filtros -->
-            <div class="bg-white dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div>
-                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Buscar</label>
-                    <input 
-                        v-model="filters.search" 
-                        @input="debounceSearch"
-                        type="text" 
-                        placeholder="Acción, usuario, email..." 
-                        class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                </div>
-
-                <div>
-                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Entidad</label>
-                    <select 
-                        v-model="filters.entity" 
-                        @change="fetchLogs(1)"
-                        class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
+            <div class="p-6 max-w-7xl mx-auto space-y-6">
+                <!-- Botón de retorno al Panel Admin -->
+                <div class="mb-6">
+                    <router-link 
+                        to="/admin" 
+                        class="inline-flex items-center space-x-2 text-sm text-yellow-400 hover:text-yellow-300 transition-colors group"
                     >
-                        <option value="">Todas</option>
-                        <option value="User">Usuario</option>
-                        <option value="Auth">Autenticación</option>
-                        <option value="Role">Rol</option>
-                        <option value="SystemLog">Sistema</option>
-                    </select>
+                        <ChevronLeftIcon class="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" />
+                        <span>Volver al Panel Admin</span>
+                    </router-link>
+                </div>
+                <!-- Header -->
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <p class="text-sm text-slate-500 dark:text-slate-400">Historial detallado de actividad y acciones ejecutadas.</p>
+                    </div>
+                    <button 
+                        @click="fetchLogs" 
+                        class="inline-flex items-center gap-2 px-4 py-2 bg-yellow-800 hover:bg-yellow-700 text-white rounded-xl text-sm font-medium transition-colors w-fit"
+                    >
+                        <span>Refrescar</span>
+                    </button>
                 </div>
 
-                <div>
-                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Desde</label>
-                    <input 
-                        ref="startDateInput"
-                        type="text" 
-                        placeholder="Seleccionar fecha..."
-                        class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-                    />
-                </div>
+                <!-- Filtros -->
+                <div class="bg-white dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Buscar</label>
+                        <input 
+                            v-model="filters.search" 
+                            @input="debounceSearch"
+                            type="text" 
+                            placeholder="Acción, usuario, email..." 
+                            class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                    </div>
 
-                <div>
-                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Hasta</label>
-                    <input 
-                        ref="endDateInput"
-                        type="text" 
-                        placeholder="Seleccionar fecha..."
-                        class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-                    />
-                </div>
-            </div>
-
-            <!-- Tabla -->
-            <div class="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm overflow-hidden">
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm">
-                        <thead>
-                            <tr class="border-b border-slate-200 dark:border-slate-700/60 bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wider select-none">
-                                <!-- Fecha / Hora -->
-                                <th @click="handleSort('createdAt')" class="py-3 px-4 text-left cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors">
-                                    <div class="flex items-center space-x-1">
-                                        <span>Fecha / Hora</span>
-                                        <span class="inline-flex flex-col text-[10px] leading-none">
-                                            <span :class="sortBy === 'createdAt' && sortOrder === 'asc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▲</span>
-                                            <span :class="sortBy === 'createdAt' && sortOrder === 'desc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▼</span>
-                                        </span>
-                                    </div>
-                                </th>
-
-                                <!-- Usuario -->
-                                <th @click="handleSort('user')" class="py-3 px-4 text-left cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors">
-                                    <div class="flex items-center space-x-1">
-                                        <span>Usuario</span>
-                                        <span class="inline-flex flex-col text-[10px] leading-none">
-                                            <span :class="sortBy === 'user' && sortOrder === 'asc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▲</span>
-                                            <span :class="sortBy === 'user' && sortOrder === 'desc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▼</span>
-                                        </span>
-                                    </div>
-                                </th>
-
-                                <!-- Acción -->
-                                <th @click="handleSort('action')" class="py-3 px-4 text-left cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors">
-                                    <div class="flex items-center space-x-1">
-                                        <span>Acción</span>
-                                        <span class="inline-flex flex-col text-[10px] leading-none">
-                                            <span :class="sortBy === 'action' && sortOrder === 'asc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▲</span>
-                                            <span :class="sortBy === 'action' && sortOrder === 'desc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▼</span>
-                                        </span>
-                                    </div>
-                                </th>
-
-                                <!-- Entidad -->
-                                <th @click="handleSort('entity')" class="py-3 px-4 text-left cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors">
-                                    <div class="flex items-center space-x-1">
-                                        <span>Entidad</span>
-                                        <span class="inline-flex flex-col text-[10px] leading-none">
-                                            <span :class="sortBy === 'entity' && sortOrder === 'asc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▲</span>
-                                            <span :class="sortBy === 'entity' && sortOrder === 'desc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▼</span>
-                                        </span>
-                                    </div>
-                                </th>
-
-                                <!-- IP (Sin ordenamiento dinámico) -->
-                                <th class="py-3 px-4 text-left">IP</th>
-
-                                <!-- Detalles -->
-                                <th class="py-3 px-4 text-right">Detalles</th>
-                            </tr>
-                        </thead>                   
-                        <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50 text-slate-700 dark:text-slate-300">
-                            <tr v-if="loading">
-                                <td colspan="6" class="text-center py-8 text-slate-400">Cargando registros...</td>
-                            </tr>
-                            <tr v-else-if="logs.length === 0">
-                                <td colspan="6" class="text-center py-8 text-slate-400">No se encontraron eventos.</td>
-                            </tr>
-                            <tr v-for="log in logs" :key="log.id" class="hover:bg-slate-50/50 dark:hover:bg-slate-700/30 transition-colors">
-                                <td class="py-3 px-4 font-mono text-xs whitespace-nowrap">{{ formatDate(log.createdAt) }}</td>
-                                <td class="py-3 px-4">
-                                    <div v-if="log.user" class="flex flex-col">
-                                        <span class="font-medium text-slate-900 dark:text-white">{{ log.user.name }}</span>
-                                        <span class="text-xs text-slate-400">{{ log.user.email }}</span>
-                                    </div>
-                                    <span v-else class="text-xs text-slate-400 italic">Sistema / Anónimo</span>
-                                </td>
-                                <td class="py-3 px-4 font-semibold text-slate-800 dark:text-slate-200">{{ log.action }}</td>
-                                <td class="py-3 px-4">
-                                    <span :class="getEntityBadgeClass(log.entity)" class="px-2.5 py-1 text-[11px] font-semibold rounded-lg border">
-                                        {{ log.entity }}
-                                    </span>
-                                </td>
-                                <td class="py-3 px-4 font-mono text-xs text-slate-400">{{ log.ipAddress || 'N/A' }}</td>
-                                <td class="py-3 px-4 text-right">
-                                    <button 
-                                        v-if="log.details" 
-                                        @click="openDetailsModal(log)" 
-                                        class="text-xs text-emerald-600 dark:text-emerald-400 hover:underline font-medium"
-                                    >
-                                        Ver JSON
-                                    </button>
-                                    <span v-else class="text-xs text-slate-400">-</span>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Paginación -->
-                <div class="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-900/40 border-t border-slate-200 dark:border-slate-700">
-                    <span class="text-xs text-slate-500 dark:text-slate-400">
-                        Mostrando página {{ pagination.page }} de {{ pagination.totalPages }} ({{ pagination.total }} registros)
-                    </span>
-                    <div class="flex gap-2">
-                        <button 
-                            :disabled="pagination.page <= 1" 
-                            @click="changePage(pagination.page - 1)" 
-                            class="px-3 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium disabled:opacity-40"
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Entidad</label>
+                        <select 
+                            v-model="filters.entity" 
+                            @change="fetchLogs(1)"
+                            class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         >
-                            Anterior
-                        </button>
-                        <button 
-                            :disabled="pagination.page >= pagination.totalPages" 
-                            @click="changePage(pagination.page + 1)" 
-                            class="px-3 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium disabled:opacity-40"
-                        >
-                            Siguiente
-                        </button>
+                            <option value="">Todas</option>
+                            <option value="User">Usuario</option>
+                            <option value="Auth">Autenticación</option>
+                            <option value="Role">Rol</option>
+                            <option value="SystemLog">Sistema</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Desde</label>
+                        <input 
+                            ref="startDateInput"
+                            type="text" 
+                            placeholder="Seleccionar fecha..."
+                            class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                        />
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Hasta</label>
+                        <input 
+                            ref="endDateInput"
+                            type="text" 
+                            placeholder="Seleccionar fecha..."
+                            class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                        />
                     </div>
                 </div>
-            </div>
-            <!-- Modal de Detalles JSON -->
-            <div v-if="selectedLogModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-                <div class="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-2xl w-full shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4">
-                    <div class="flex flex-col sm:flex-row items-center justify-between text-center sm:text-left gap-1">
-                        <h3 class="text-lg font-bold text-slate-900 dark:text-white">Detalles del Evento</h3>
-                        <span class="text-xs text-slate-400 font-mono">{{ selectedLogModal.action }} - {{ formatDate(selectedLogModal.createdAt) }}</span>
-                    </div>                
-                    <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 overflow-y-auto overflow-x-hidden max-h-[50vh] max-w-full">
-                        <pre class="text-emerald-400 font-mono text-xs whitespace-pre-wrap break-all leading-relaxed select-all">{{ formatJsonDetails(selectedLogModal.details) }}</pre>
+
+                <!-- Tabla -->
+                <div class="bg-white dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 shadow-sm overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead>
+                                <tr class="border-b border-slate-200 dark:border-slate-700/60 bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wider select-none">
+                                    <!-- Fecha / Hora -->
+                                    <th @click="handleSort('createdAt')" class="py-3 px-4 text-left cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors">
+                                        <div class="flex items-center space-x-1">
+                                            <span>Fecha / Hora</span>
+                                            <span class="inline-flex flex-col text-[10px] leading-none">
+                                                <span :class="sortBy === 'createdAt' && sortOrder === 'asc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▲</span>
+                                                <span :class="sortBy === 'createdAt' && sortOrder === 'desc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▼</span>
+                                            </span>
+                                        </div>
+                                    </th>
+
+                                    <!-- Usuario -->
+                                    <th @click="handleSort('user')" class="py-3 px-4 text-left cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors">
+                                        <div class="flex items-center space-x-1">
+                                            <span>Usuario</span>
+                                            <span class="inline-flex flex-col text-[10px] leading-none">
+                                                <span :class="sortBy === 'user' && sortOrder === 'asc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▲</span>
+                                                <span :class="sortBy === 'user' && sortOrder === 'desc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▼</span>
+                                            </span>
+                                        </div>
+                                    </th>
+
+                                    <!-- Acción -->
+                                    <th @click="handleSort('action')" class="py-3 px-4 text-left cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors">
+                                        <div class="flex items-center space-x-1">
+                                            <span>Acción</span>
+                                            <span class="inline-flex flex-col text-[10px] leading-none">
+                                                <span :class="sortBy === 'action' && sortOrder === 'asc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▲</span>
+                                                <span :class="sortBy === 'action' && sortOrder === 'desc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▼</span>
+                                            </span>
+                                        </div>
+                                    </th>
+
+                                    <!-- Entidad -->
+                                    <th @click="handleSort('entity')" class="py-3 px-4 text-left cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors">
+                                        <div class="flex items-center space-x-1">
+                                            <span>Entidad</span>
+                                            <span class="inline-flex flex-col text-[10px] leading-none">
+                                                <span :class="sortBy === 'entity' && sortOrder === 'asc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▲</span>
+                                                <span :class="sortBy === 'entity' && sortOrder === 'desc' ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'">▼</span>
+                                            </span>
+                                        </div>
+                                    </th>
+
+                                    <!-- IP (Sin ordenamiento dinámico) -->
+                                    <th class="py-3 px-4 text-left">IP</th>
+
+                                    <!-- Detalles -->
+                                    <th class="py-3 px-4 text-right">Detalles</th>
+                                </tr>
+                            </thead>                   
+                            <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50 text-slate-700 dark:text-slate-300">
+                                <tr v-if="loading">
+                                    <td colspan="6" class="text-center py-8 text-slate-400">Cargando registros...</td>
+                                </tr>
+                                <tr v-else-if="logs.length === 0">
+                                    <td colspan="6" class="text-center py-8 text-slate-400">No se encontraron eventos.</td>
+                                </tr>
+                                <tr v-for="log in logs" :key="log.id" class="hover:bg-slate-50/50 dark:hover:bg-slate-700/30 transition-colors">
+                                    <td class="py-3 px-4 font-mono text-xs whitespace-nowrap">{{ formatDate(log.createdAt) }}</td>
+                                    <td class="py-3 px-4">
+                                        <div v-if="log.user" class="flex flex-col">
+                                            <span class="font-medium text-slate-900 dark:text-white">{{ log.user.name }}</span>
+                                            <span class="text-xs text-slate-400">{{ log.user.email }}</span>
+                                        </div>
+                                        <span v-else class="text-xs text-slate-400 italic">Sistema / Anónimo</span>
+                                    </td>
+                                    <td class="py-3 px-4 font-semibold text-slate-800 dark:text-slate-200">{{ log.action }}</td>
+                                    <td class="py-3 px-4">
+                                        <span :class="getEntityBadgeClass(log.entity)" class="px-2.5 py-1 text-[11px] font-semibold rounded-lg border">
+                                            {{ log.entity }}
+                                        </span>
+                                    </td>
+                                    <td class="py-3 px-4 font-mono text-xs text-slate-400">{{ log.ipAddress || 'N/A' }}</td>
+                                    <td class="py-3 px-4 text-right">
+                                        <button 
+                                            v-if="log.details" 
+                                            @click="openDetailsModal(log)" 
+                                            class="text-xs text-emerald-600 dark:text-emerald-400 hover:underline font-medium"
+                                        >
+                                            Ver JSON
+                                        </button>
+                                        <span v-else class="text-xs text-slate-400">-</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
-                    <div class="flex justify-end">
-                        <button 
-                            @click="selectedLogModal = null" 
-                            class="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors cursor-pointer"
-                        >
-                            Cerrar
-                        </button>
+
+                    <!-- Paginación -->
+                    <div class="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-900/40 border-t border-slate-200 dark:border-slate-700">
+                        <span class="text-xs text-slate-500 dark:text-slate-400">
+                            Mostrando página {{ pagination.page }} de {{ pagination.totalPages }} ({{ pagination.total }} registros)
+                        </span>
+                        <div class="flex gap-2">
+                            <button 
+                                :disabled="pagination.page <= 1" 
+                                @click="changePage(pagination.page - 1)" 
+                                class="px-3 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium disabled:opacity-40"
+                            >
+                                Anterior
+                            </button>
+                            <button 
+                                :disabled="pagination.page >= pagination.totalPages" 
+                                @click="changePage(pagination.page + 1)" 
+                                class="px-3 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium disabled:opacity-40"
+                            >
+                                Siguiente
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Modal de Detalles JSON -->
+                <div v-if="selectedLogModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+                    <div class="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-2xl w-full shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+                        <div class="flex flex-col sm:flex-row items-center justify-between text-center sm:text-left gap-1">
+                            <h3 class="text-lg font-bold text-slate-900 dark:text-white">Detalles del Evento</h3>
+                            <span class="text-xs text-slate-400 font-mono">{{ selectedLogModal.action }} - {{ formatDate(selectedLogModal.createdAt) }}</span>
+                        </div>                
+                        <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 overflow-y-auto overflow-x-hidden max-h-[50vh] max-w-full">
+                            <pre class="text-emerald-400 font-mono text-xs whitespace-pre-wrap break-all leading-relaxed select-all">{{ formatJsonDetails(selectedLogModal.details) }}</pre>
+                        </div>
+                        <div class="flex justify-end">
+                            <button 
+                                @click="selectedLogModal = null" 
+                                class="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors cursor-pointer"
+                            >
+                                Cerrar
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -4189,67 +4867,71 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
 1. Crear vista administrativa `src/views/admin/AdminDashboardView.vue`:
     ```vue
     <template>
-        <div class="p-6 max-w-7xl mx-auto">
-            <!-- Botón de retorno al Dashboard Principal -->
-            <div class="mb-6">
-                <router-link 
-                    to="/dashboard" 
-                    class="inline-flex items-center space-x-2 text-sm text-slate-400 hover:text-white transition-colors group"
-                >
-                    <ChevronLeftIcon class="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" />
-                    <span>Volver al Inicio</span>
-                </router-link>
-            </div>        
-            <div class="mb-8">
-                <h1 class="text-2xl font-bold text-white">Panel de Administración</h1>
-                <p class="text-slate-400 text-sm">Gestiona la configuración global de la plataforma, accesos y permisos.</p>
-            </div>
-
-            <!-- Grid de Accesos Directos a Módulos Admin -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                
-                <!-- Módulo: Usuarios -->
-                <router-link 
-                    to="/admin/users" 
-                    class="group p-6 bg-slate-800/60 border border-slate-700/60 hover:border-emerald-500/50 rounded-2xl transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/5"
-                >
-                    <div class="flex items-center justify-between mb-4">
-                        <div class="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl group-hover:scale-110 transition-transform">
-                            <UsersIcon class="w-6 h-6" />
-                        </div>
-                        <span class="text-xs font-semibold px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full">Activo</span>
-                    </div>
-                    <h2 class="text-lg font-semibold text-white group-hover:text-emerald-400 transition-colors">Gestión de Usuarios</h2>
-                    <p class="text-slate-400 text-xs mt-1">Creación, edición de datos personales, asignación de roles y eliminación.</p>
-                </router-link>
-
-                <!-- Módulo: Roles y Permisos -->
-                <router-link 
-                    to="/admin/roles" 
-                    class="group p-6 bg-slate-800/60 border border-slate-700/60 hover:border-purple-500/50 rounded-2xl transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/5"
-                >
-                    <div class="flex items-center justify-between mb-4">
-                        <div class="p-3 bg-purple-500/10 text-purple-400 rounded-xl group-hover:scale-110 transition-transform">
-                            <ShieldCheckIcon class="w-6 h-6" />
-                        </div>
-                        <span class="text-xs font-semibold px-2.5 py-1 bg-purple-500/10 text-purple-400 border border-purple-500/20 rounded-full">Dev / Config</span>
-                    </div>
-                    <h2 class="text-lg font-semibold text-white group-hover:text-purple-400 transition-colors">Roles y Permisos</h2>
-                    <p class="text-slate-400 text-xs mt-1">Administración de la tabla de roles globales del sistema (CRUD de Roles).</p>
-                </router-link>
-
-                <!-- Módulo: Logs de Auditoría / Sistema (Sugerencia) -->
-                <div class="p-6 bg-slate-800/20 border border-slate-700/30 rounded-2xl opacity-60 cursor-not-allowed">
-                    <div class="flex items-center justify-between mb-4">
-                        <div class="p-3 bg-slate-700/30 text-slate-500 rounded-xl">
-                            <DocumentChartBarIcon class="w-6 h-6" />
-                        </div>
-                        <span class="text-xs font-semibold px-2.5 py-1 bg-slate-700/30 text-slate-500 border border-slate-600/30 rounded-full">Próximamente</span>
-                    </div>
-                    <h2 class="text-lg font-semibold text-slate-400">Auditoría / Logs</h2>
-                    <p class="text-slate-500 text-xs mt-1">Historial de cambios críticos y acciones de los administradores.</p>
+        <div class="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
+            <div class="p-6 max-w-7xl mx-auto">        
+                <!-- Botón de retorno al Dashboard Principal -->
+                <div class="mb-6">
+                    <router-link 
+                        to="/dashboard" 
+                        class="inline-flex items-center space-x-2 text-sm text-slate-400 hover:text-white transition-colors group"
+                    >
+                        <ChevronLeftIcon class="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" />
+                        <span>Volver al Dashboard</span>
+                    </router-link>
+                </div>        
+                <div class="mb-8">
+                    <p class="text-slate-400 text-sm">Gestiona la configuración global de la plataforma, accesos y permisos.</p>
                 </div>
 
+                <!-- Grid de Accesos Directos a Módulos Admin -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    
+                    <!-- Módulo: Usuarios -->
+                    <router-link 
+                        to="/admin/users" 
+                        class="group p-6 bg-slate-800/60 border border-slate-700/60 hover:border-emerald-500/50 rounded-2xl transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/5"
+                    >
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl group-hover:scale-110 transition-transform">
+                                <UsersIcon class="w-6 h-6" />
+                            </div>
+                            <span class="text-xs font-semibold px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full">Activo</span>
+                        </div>
+                        <h2 class="text-lg font-semibold text-white group-hover:text-emerald-400 transition-colors">Gestión de Usuarios</h2>
+                        <p class="text-slate-400 text-xs mt-1">Creación, edición de datos personales, asignación de roles y eliminación.</p>
+                    </router-link>
+
+                    <!-- Módulo: Roles y Permisos -->
+                    <router-link 
+                        to="/admin/roles" 
+                        class="group p-6 bg-slate-800/60 border border-slate-700/60 hover:border-purple-500/50 rounded-2xl transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/5"
+                    >
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="p-3 bg-purple-500/10 text-purple-400 rounded-xl group-hover:scale-110 transition-transform">
+                                <ShieldCheckIcon class="w-6 h-6" />
+                            </div>
+                            <span class="text-xs font-semibold px-2.5 py-1 bg-purple-500/10 text-purple-400 border border-purple-500/20 rounded-full">Dev / Config</span>
+                        </div>
+                        <h2 class="text-lg font-semibold text-white group-hover:text-purple-400 transition-colors">Roles y Permisos</h2>
+                        <p class="text-slate-400 text-xs mt-1">Administración de la tabla de roles globales del sistema (CRUD de Roles).</p>
+                    </router-link>
+
+                    <!-- Módulo: Logs de Auditoría / Sistema -->
+                    <router-link 
+                        to="/admin/audit-logs" 
+                        class="group p-6 bg-slate-800/60 border border-slate-700/60 hover:border-emerald-500/50 rounded-2xl transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/5"
+                    >
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="p-3 bg-yellow-500/10 text-yellow-400 rounded-xl group-hover:scale-110 transition-transform">
+                                <DocumentChartBarIcon class="w-6 h-6" />
+                            </div>
+                            <span class="text-xs font-semibold px-2.5 py-1 bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 rounded-full">Sistema</span>
+                        </div>
+                        <h2 class="text-lg font-semibold text-white group-hover:text-yellow-400 transition-colors">Auditoría / Logs</h2>
+                        <p class="text-slate-400 text-xs mt-1">Historial de cambios críticos y acciones de los administradores.</p>
+                    </router-link>            
+
+                </div>
             </div>
         </div>
     </template>
@@ -5028,6 +5710,14 @@ npx prisma studio --url "postgresql://dev_user:dev_password@localhost:5432/local
     ```bash
     ~/start_services.sh
     ```
+    + Nota: en caso de que algún puerto este ocupado por un proceso anterior que se quedó colgado:
+        ```bash
+        fuser -k 4000/tcp
+        ```
+    + Cerrar todos los procesos de Node activos de golpe:
+        ```bash
+        killall -9 node
+        ```
 
 
 
@@ -5055,19 +5745,45 @@ git remote add origin https://github.com/TU_USUARIO/starter-backend.git
 
 git remote add origin git@github.com:TU_USUARIO/starter-backend.git
 
-```txt
-"{\"name\":\"Borrar\",\"email\":\"borrar@borrar.borrar\",\"password\":\"[PROTECTED]\",\"roles\":{\"create\":{\"roleId\":\"9294689c-e342-4b15-9540-616c8c06ad31\"}}}"
-```
 
-```json
-{
-    "name":"Borrar",
-    "email":"borrar@borrar.borrar",
-    "password":"[PROTECTED]",
-    "roles": {
-        "create": {
-            "roleId": "9294689c-e342-4b15-9540-616c8c06ad31"
-        }
-    }
-}
-```
+## ---
+Querido primo, la verdad es que me dejaste reflexionando mucho sobre lo que me contaste, y voy a intentar explicarte lo que yo hago sin entrar en aguas profundas.
+Lo que yo hago es crear herramientas y programas a medida para que los negocios ahorren tiempo, automaticen su trabajo diario y vendan más por internet.
+Olvídate de nombres raros de programación o tecnología; a ningún cliente le importa cómo está hecho algo por dentro, solo les importa el problema que les resuelvo.
+Para que te hagas una idea de lo que podemos ofrecer, aquí van tres ejemplos claros de lo que construyo:
+- Sistemas de gestión a medida: Si un negocio (un taller, una clínica, una veterinaria, una tienda...) lleva sus citas o sus clientes en papeles o en un Excel caótico, yo les creo un programa propio donde lo tienen todo organizado, ven sus ganancias y controlan su agenda sin volverse locos.
+- Automatización de tareas repetitivas: Si en una empresa pierden dos horas al día copiando datos a mano, haciendo facturas una a una o mandando correos, yo creo un sistema que hace todo eso solo en un segundo y sin errores.
+- Plataformas interactivas para clientes: Webs con zona privada donde los clientes pueden registrarse, pagar suscripciones, reservar citas o descargar documentos a cualquier hora.
+💡 La gran diferencia con los maricones del diseño web es que un diseñador web normal solo hace una página bonita que sirve como "folleto digital" (texto y fotos). Lo que yo hago es construir el motor del negocio: sistemas donde hay usuarios, bases de datos, cobros, firmas digitales y procesos automáticos.
+
+Ahora que tal si te nombro Gerente de *Asesoramiento Legal* y *Superintendente de Captación de Clientes* sin tener que dejar tu trabajo, en definitiva, solo deberás brindarme asesoramiento legal y conseguir clientes, y quedaramos por ejemplo algo así, luego de descontar impuestos y toda esa mariquera:
+- Desarrollo Tecnológico (Yo): 50% - 55%
+- Ventas y Parte Legal (Tu): 25% - 30%
+- Caja de Reserva / Equipamiento: 15% - 20%
+
+🔍 *¿Cómo saber si alguien puede ser nuestro cliente?*
+Dueños de negocios que se quejan de cosas como:
+- Es que pierdo muchísimo tiempo con el papeleo o la gestión.
+- Se me olvidan citas o pierdo clientes por no atender a tiempo.
+- Me gustaría que los clientes pudieran reservar o comprar desde la web sin tener que llamarme.
+
+
+
+
+
+
+
+
+Ejemplo de forma de presentarlo a una empresa:
+*Soluciones Digitales y Software a Medida para Negocios*
+Transformo la manera en que las empresas operan, ayudándolas a ahorrar tiempo, reducir costes y escalar sus ventas mediante el diseño de herramientas digitales adaptadas al 100% a sus necesidades reales.
+
+*¿Qué puedo hacer por tu negocio?*
+- Sistemas de gestión interna: Creación de paneles de control, CRMs y programas a medida para organizar clientes, citas, inventario o facturación en un solo lugar.
+- Automatización de procesos: Conexión de herramientas y tareas repetitivas para eliminar el trabajo manual, los errores humanos y la pérdida de tiempo operativa.
+- Portales y plataformas para clientes: Desarrollo de espacios web interactivos con zonas privadas, sistemas de reserva online y pasarelas de pago integradas.
+
+*¿Por qué apostar por un desarrollo a medida?*
+- Adaptación total: El software se diseña en función de cómo trabaja tu empresa, evitando que tengas que adaptar tu flujo de trabajo a un programa genérico.
+- Eficiencia operativa: Liberación de horas de trabajo diario que tu equipo podrá dedicar a lo que realmente aporta valor al negocio.
+- Un activo propio: La plataforma es completamente de tu propiedad, eliminando la dependencia de licencias de terceros o cuotas mensuales excesivas.
