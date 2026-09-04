@@ -2116,50 +2116,243 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
     + Crearemos la nueva pantalla de perfil limpia y estructurada:
         ```vue
         <script setup>
-            import { ref } from 'vue';
-            import { useAuthStore } from '../stores/auth.store';
-            import { UserIcon, KeyIcon, ChevronLeftIcon, CameraIcon } from '@heroicons/vue/24/outline';
+        import { ref, watch } from 'vue';
+        import { useAuthStore } from '../stores/auth.store';
+        import { UserIcon, KeyIcon, ChevronLeftIcon } from '@heroicons/vue/24/outline';
+        import axios from 'axios';
+        import Swal from 'sweetalert2';
 
-            const authStore = useAuthStore();
-            const fileInputRef = ref(null);
-            const saving = ref(false);
+        const authStore = useAuthStore();
+        const fileInputRef = ref(null);
+        const saving = ref(false);
 
-            const profileForm = ref({
-                name: authStore.user?.name || '',
-                email: authStore.user?.email || '',
-                currentPassword: '',
-                newPassword: '',
-                avatarUrl: authStore.user?.avatarUrl || null,
-                avatarFile: null
+        // Configuración base de SweetAlert2 con estilo oscuro (Slate)
+        const swalDark = Swal.mixin({
+            background: '#1e293b',
+            color: '#f8fafc',
+            customClass: {
+                popup: 'rounded-2xl border border-slate-700 shadow-2xl',
+                confirmButton: 'px-5 py-2.5 rounded-xl font-medium text-sm bg-emerald-600 hover:bg-emerald-500 text-white transition-colors',
+                cancelButton: 'px-5 py-2.5 rounded-xl font-medium text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors'
+            },
+            buttonsStyling: false
+        });
+
+        // Formulario reactivo
+        const profileForm = ref({
+            name: authStore.user?.name || '',
+            email: authStore.user?.email || '',
+            currentPassword: '',
+            newPassword: '',
+            avatarUrl: authStore.user?.avatarUrl || null,
+            avatarFile: null
+        });
+
+        // Sincronizar cambios en authStore.user
+        watch(() => authStore.user, (newUser) => {
+            if (newUser) {
+                profileForm.value.name = newUser.name || '';
+                profileForm.value.email = newUser.email || '';
+                if (!profileForm.value.avatarFile) {
+                    profileForm.value.avatarUrl = newUser.avatarUrl || null;
+                }
+            }
+        }, { immediate: true });
+
+        // Previsualizar la imagen seleccionada localmente
+        const handleAvatarChange = (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                // Validar tamaño máximo (2MB)
+                if (file.size > 2 * 1024 * 1024) {
+                    swalDark.fire({
+                        title: 'Archivo muy grande',
+                        text: 'La imagen supera el tamaño máximo permitido de 2MB.',
+                        icon: 'warning'
+                    });
+                    if (fileInputRef.value) fileInputRef.value.value = '';
+                    return;
+                }
+
+                // Liberar ObjectURL anterior si existía para evitar leaks de memoria
+                if (profileForm.value.avatarUrl && profileForm.value.avatarUrl.startsWith('blob:')) {
+                    URL.revokeObjectURL(profileForm.value.avatarUrl);
+                }
+
+                profileForm.value.avatarFile = file;
+                profileForm.value.avatarUrl = URL.createObjectURL(file);
+            }
+        };
+
+        // Cancelar/Quitar selección local de la foto
+        const removeAvatarSelection = () => {
+            if (profileForm.value.avatarUrl && profileForm.value.avatarUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(profileForm.value.avatarUrl);
+            }
+            profileForm.value.avatarFile = null;
+            profileForm.value.avatarUrl = authStore.user?.avatarUrl || null;
+            if (fileInputRef.value) fileInputRef.value.value = '';
+        };
+
+        // Guardar Cambios del Perfil
+        const updateProfile = async () => {
+            const nameChanged = profileForm.value.name !== authStore.user?.name;
+            const passwordProvided = Boolean(profileForm.value.newPassword);
+            const avatarProvided = Boolean(profileForm.value.avatarFile);
+
+            if (!avatarProvided && !nameChanged && !passwordProvided) {
+                swalDark.fire({
+                    title: 'Sin cambios',
+                    text: 'No has realizado ninguna modificación en tu perfil.',
+                    icon: 'info',
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+                return;
+            }
+
+            // Validación de contraseña si intenta cambiarla
+            if (passwordProvided && !profileForm.value.currentPassword) {
+                swalDark.fire({
+                    title: 'Campo requerido',
+                    text: 'Debes ingresar tu contraseña actual para establecer una nueva.',
+                    icon: 'warning'
+                });
+                return;
+            }
+
+            saving.value = true;
+            const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api/v1';
+            const authHeaders = {
+                headers: { Authorization: `Bearer ${authStore.token}` }
+            };
+
+            try {
+                let updatedUserData = null;
+
+                // 1. Subir Avatar
+                if (profileForm.value.avatarFile) {
+                    const formData = new FormData();
+                    formData.append('avatar', profileForm.value.avatarFile);
+
+                    const avatarRes = await axios.post(`${baseUrl}/auth/avatar`, formData, {
+                        headers: {
+                            'Content-Type': 'multipart/form-data',
+                            'Authorization': `Bearer ${authStore.token}`
+                        }
+                    });
+                    updatedUserData = avatarRes.data.data?.user || avatarRes.data.user;
+                }
+
+                // 2. Actualizar Datos de Perfil (Nombre y/o Contraseña)
+                if (nameChanged || passwordProvided) {
+                    const profilePayload = {
+                        name: profileForm.value.name,
+                        ...(passwordProvided && {
+                            currentPassword: profileForm.value.currentPassword,
+                            newPassword: profileForm.value.newPassword
+                        })
+                    };
+
+                    const profileRes = await axios.put(`${baseUrl}/auth/profile`, profilePayload, authHeaders);
+                    updatedUserData = profileRes.data.data?.user || profileRes.data.user;
+                }
+
+                // 3. Actualizar Store de Pinia
+                if (updatedUserData) {
+                    if (typeof authStore.setUser === 'function') {
+                        authStore.setUser(updatedUserData);
+                    } else {
+                        authStore.user = { ...authStore.user, ...updatedUserData };
+                    }
+                }
+
+                // Limpieza de campos de contraseña y archivos
+                profileForm.value.currentPassword = '';
+                profileForm.value.newPassword = '';
+                profileForm.value.avatarFile = null;
+                if (fileInputRef.value) fileInputRef.value.value = '';
+
+                swalDark.fire({
+                    title: '¡Perfil actualizado!',
+                    text: 'Tus datos se han guardado correctamente.',
+                    icon: 'success',
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+
+            } catch (error) {
+                console.error('Error al actualizar perfil:', error);
+                swalDark.fire({
+                    title: 'Error',
+                    text: error.response?.data?.message || 'Ocurrió un error al intentar actualizar el perfil.',
+                    icon: 'error'
+                });
+            } finally {
+                saving.value = false;
+            }
+        };
+
+        // Eliminar avatar definitivamente
+        const removeCurrentAvatar = async () => {
+            const confirmResult = await swalDark.fire({
+                title: '¿Eliminar foto de perfil?',
+                text: 'Tu avatar se borrará permanentemente de tu cuenta.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, eliminar',
+                cancelButtonText: 'Cancelar',
+                customClass: {
+                    popup: 'rounded-2xl border border-slate-700 shadow-2xl',
+                    confirmButton: 'px-5 py-2.5 rounded-xl font-medium text-sm bg-red-600 hover:bg-red-500 text-white transition-colors mr-3',
+                    cancelButton: 'px-5 py-2.5 rounded-xl font-medium text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors'
+                }
             });
 
-            const handleAvatarChange = (event) => {
-                const file = event.target.files[0];
-                if (file) {
-                    profileForm.value.avatarFile = file;
-                    profileForm.value.avatarUrl = URL.createObjectURL(file);
-                }
-            };
+            if (!confirmResult.isConfirmed) return;
 
-            const removeAvatar = () => {
-                profileForm.value.avatarFile = null;
+            saving.value = true;
+            const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api/v1';
+
+            try {
+                const response = await axios.delete(`${baseUrl}/auth/avatar`, {
+                    headers: { Authorization: `Bearer ${authStore.token}` }
+                });
+
+                const updatedUser = response.data.data?.user || response.data.user;
+
+                if (typeof authStore.setUser === 'function') {
+                    authStore.setUser(updatedUser);
+                } else {
+                    authStore.user = { ...authStore.user, avatarUrl: null };
+                }
+
                 profileForm.value.avatarUrl = null;
+                profileForm.value.avatarFile = null;
                 if (fileInputRef.value) fileInputRef.value.value = '';
-            };
 
-            const updateProfile = async () => {
-                saving.value = true;
-                try {
-                    // Aquí llamaremos al endpoint PUT /api/v1/auth/profile
-                    // usando FormData para enviar avatarFile, name, passwords, etc.
-                } finally {
-                    saving.value = false;
-                }
-            };
+                swalDark.fire({
+                    title: 'Eliminada',
+                    text: 'Tu foto de perfil ha sido eliminada.',
+                    icon: 'success',
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+            } catch (error) {
+                console.error('Error al eliminar avatar:', error);
+                swalDark.fire({
+                    title: 'Error',
+                    text: error.response?.data?.message || 'Error al eliminar la imagen de perfil.',
+                    icon: 'error'
+                });
+            } finally {
+                saving.value = false;
+            }
+        };
         </script>
 
         <template>
-            <div class="max-w-4xl mx-auto px-4 py-8">            
+            <div class="max-w-4xl mx-auto px-4 py-8">
                 <!-- Botón de retorno al Dashboard -->
                 <div class="mb-6">
                     <router-link 
@@ -2185,22 +2378,43 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
                         </h3>
 
                         <div class="flex flex-col sm:flex-row items-center gap-6 mb-6">
-                            <div class="relative w-24 h-24 rounded-full overflow-hidden bg-slate-700 border-2 border-slate-600 flex items-center justify-center group">
-                                <img v-if="profileForm.avatarUrl" :src="profileForm.avatarUrl" class="w-full h-full object-cover" />
+                            <div class="relative w-24 h-24 rounded-full overflow-hidden bg-slate-700 border-2 border-slate-600 flex items-center justify-center shrink-0">
+                                <img 
+                                    v-if="profileForm.avatarUrl" 
+                                    :src="profileForm.avatarUrl" 
+                                    alt="Avatar de usuario"
+                                    class="w-full h-full object-cover" 
+                                />
                                 <span v-else class="text-3xl font-bold text-emerald-400">
                                     {{ profileForm.name ? profileForm.name.charAt(0).toUpperCase() : 'U' }}
                                 </span>
                             </div>
 
                             <div class="flex flex-col space-y-2 text-center sm:text-left">
-                                <div class="flex gap-3">
+                                <div class="flex gap-3 justify-center sm:justify-start">
                                     <label class="cursor-pointer px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-xl transition-colors">
                                         <span>Cambiar Foto</span>
                                         <input ref="fileInputRef" type="file" accept="image/*" class="hidden" @change="handleAvatarChange" />
                                     </label>
 
-                                    <button v-if="profileForm.avatarUrl" type="button" @click="removeAvatar" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-xs font-semibold text-red-400 rounded-xl transition-colors">
-                                        Quitar
+                                    <!-- Cancelar selección local antes de subir -->
+                                    <button 
+                                        v-if="profileForm.avatarFile" 
+                                        type="button" 
+                                        @click="removeAvatarSelection" 
+                                        class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-xs font-semibold text-slate-300 rounded-xl transition-colors"
+                                    >
+                                        Cancelar Selección
+                                    </button>
+
+                                    <!-- Eliminar permanentemente de S3/BD -->
+                                    <button 
+                                        v-else-if="authStore.user?.avatarUrl" 
+                                        type="button" 
+                                        @click="removeCurrentAvatar" 
+                                        class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-xs font-semibold text-red-400 rounded-xl transition-colors"
+                                    >
+                                        Quitar Foto
                                     </button>
                                 </div>
                                 <p class="text-xs text-slate-500">JPG, PNG o WEBP. Máximo 2MB.</p>
@@ -2210,12 +2424,22 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Nombre Completo</label>
-                                <input v-model="profileForm.name" type="text" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                                <input 
+                                    v-model="profileForm.name" 
+                                    type="text" 
+                                    required 
+                                    class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500" 
+                                />
                             </div>
 
                             <div>
                                 <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Correo Electrónico</label>
-                                <input v-model="profileForm.email" type="email" disabled class="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-3.5 py-2.5 text-sm text-slate-500 cursor-not-allowed" />
+                                <input 
+                                    v-model="profileForm.email" 
+                                    type="email" 
+                                    disabled 
+                                    class="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-3.5 py-2.5 text-sm text-slate-500 cursor-not-allowed" 
+                                />
                             </div>
                         </div>
                     </div>
@@ -2230,24 +2454,39 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Contraseña Actual</label>
-                                <input v-model="profileForm.currentPassword" type="password" placeholder="••••••••" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                                <input 
+                                    v-model="profileForm.currentPassword" 
+                                    type="password" 
+                                    placeholder="••••••••" 
+                                    class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500" 
+                                />
                             </div>
 
                             <div>
                                 <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Nueva Contraseña</label>
-                                <input v-model="profileForm.newPassword" type="password" placeholder="••••••••" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                                <input 
+                                    v-model="profileForm.newPassword" 
+                                    type="password" 
+                                    placeholder="••••••••" 
+                                    class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500" 
+                                />
                             </div>
                         </div>
                     </div>
 
                     <div class="flex justify-end">
-                        <button type="submit" :disabled="saving" class="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-xl disabled:opacity-50 transition-colors shadow-lg">
-                            {{ saving ? 'Guardando...' : 'Guardar Cambios' }}
+                        <button 
+                            type="submit" 
+                            :disabled="saving" 
+                            class="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-xl disabled:opacity-50 transition-colors shadow-lg flex items-center gap-2"
+                        >
+                            <span v-if="saving" class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+                            <span>{{ saving ? 'Guardando...' : 'Guardar Cambios' }}</span>
                         </button>
                     </div>
                 </form>
             </div>
-        </template>        
+        </template>       
         ```
 6. Formulario de Registro (`src/views/RegisterView.vue`)
     + Crea el archivo `src/views/RegisterView.vue`:
@@ -2610,6 +2849,7 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
     const bcrypt = require('bcryptjs');
     const jwt = require('jsonwebtoken');
     const prisma = require('../config/prisma');
+    const { getClientIp } = require('../utils/request.utils');
 
     const generateToken = (user, roles = []) => {
         return jwt.sign(
@@ -2640,7 +2880,6 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
             const salt = await bcrypt.genSalt(10);
             const passwordHash = await bcrypt.hash(password, salt);
 
-            // Se crea el usuario SIN incluir la relación de roles
             const newUser = await prisma.user.create({
                 data: {
                     email,
@@ -2651,11 +2890,11 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
                     id: true,
                     email: true,
                     name: true,
+                    avatarUrl: true,
                     createdAt: true,
                 },
             });
 
-            // Se genera token con un arreglo de roles vacío []
             const token = generateToken(newUser, []);
 
             return res.status(201).json({
@@ -2674,6 +2913,169 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
             return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
         }
     };
+
+    // 2. INICIO DE SESIÓN (LOGIN)
+    const login = async (req, res) => {
+        try {
+            const { email, password } = req.body;
+
+            const user = await prisma.user.findUnique({
+                where: { email },
+                include: {
+                    roles: {
+                        include: {
+                            role: true,
+                        },
+                    },
+                },
+            });
+
+            if (!user || !user.isActive) {
+                if (!user) {
+                    await prisma.auditLog.create({
+                        data: {
+                            action: 'LOGIN_FAILED',
+                            entity: 'Auth',
+                            ipAddress: getClientIp(req),
+                            details: JSON.stringify({ email, reason: 'Usuario no encontrado', ip: req.ip }),
+                        },
+                    });
+                }
+
+                return res.status(401).json({
+                    status: 'fail',
+                    message: 'Credenciales inválidas o cuenta desactivada',
+                });
+            }
+
+            const isPasswordValid = await bcrypt.compare(password, user.password);
+
+            if (!isPasswordValid) {
+                await prisma.auditLog.create({
+                    data: {
+                        action: 'LOGIN_FAILED',
+                        entity: 'Auth',
+                        ipAddress: getClientIp(req),
+                        details: JSON.stringify({ email, reason: 'Contraseña incorrecta', ip: req.ip }),
+                    },
+                });
+
+                return res.status(401).json({
+                    status: 'fail',
+                    message: 'Credenciales inválidas',
+                });
+            }
+
+            const userRoles = user.roles.map((ur) => ur.role.name);
+            const token = generateToken(user, userRoles);
+
+            await prisma.auditLog.create({
+                data: {
+                    action: 'LOGIN_SUCCESS',
+                    entity: 'Auth',
+                    entityId: String(user.id),
+                    ipAddress: getClientIp(req),
+                    user: { connect: { id: user.id } },
+                    details: JSON.stringify({ ip: req.ip, userAgent: req.headers['user-agent'] }),
+                },
+            });
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Inicio de sesión exitoso',
+                data: {
+                    user: {
+                        id: user.id,
+                        email: user.email,
+                        name: user.name,
+                        avatarUrl: user.avatarUrl, // <-- AGREGADO AQUI
+                        roles: userRoles,
+                    },
+                    token,
+                },
+            });
+        } catch (error) {
+            console.error('Error en login:', error);
+            return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+        }
+    };
+
+    // 3. OBTENER USUARIO ACTUAL (VERIFICAR SESIÓN)
+    const getMe = async (req, res) => {
+        try {
+            const user = await prisma.user.findUnique({
+                where: { id: req.user.id },
+                select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    avatarUrl: true,
+                    createdAt: true,
+                    roles: {
+                        select: {
+                            role: {
+                                select: { name: true },
+                            },
+                        },
+                    },
+                },
+            });
+
+            if (!user) {
+                return res.status(404).json({
+                    status: 'fail',
+                    message: 'Usuario no encontrado',
+                });
+            }
+
+            const userRoles = user.roles.map((ur) => ur.role.name);
+
+            return res.status(200).json({
+                status: 'success',
+                data: {
+                    user: {
+                        id: user.id,
+                        email: user.email,
+                        name: user.name,
+                        avatarUrl: user.avatarUrl, // <-- AGREGADO AQUI
+                        roles: userRoles,
+                        createdAt: user.createdAt,
+                    },
+                },
+            });
+        } catch (error) {
+            console.error('Error en getMe:', error);
+            return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+        }
+    };
+
+    // 4. CIERRE DE SESIÓN (LOGOUT)
+    const logout = async (req, res) => {
+        try {
+            if (req.user?.id) {
+                await prisma.auditLog.create({
+                    data: {
+                        action: 'LOGOUT',
+                        entity: 'Auth',
+                        entityId: String(req.user.id),
+                        ipAddress: getClientIp(req),
+                        user: { connect: { id: req.user.id } },
+                        details: JSON.stringify({ ip: req.ip }),
+                    },
+                });
+            }
+
+            return res.status(200).json({
+                status: 'success',
+                message: 'Sesión cerrada correctamente',
+            });
+        } catch (error) {
+            console.error('Error en logout:', error);
+            return res.status(500).json({ status: 'error', message: 'Error interno del servidor' });
+        }
+    };
+
+    module.exports = { register, login, getMe, logout };
     ```
 
 ### 🌱 Paso 2: Crear Seeder del SUPER_ADMIN (`src/seeders/superadmin.seeder.js`)
@@ -2882,6 +3284,7 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
                         id: true,
                         name: true,
                         email: true,
+                        avatarUrl: true,
                         isActive: true,
                         createdAt: true,
                         roles: {
@@ -3052,6 +3455,7 @@ Crearemos un script reutilizable e independiente que inserta las tablas iniciale
                     id: true,
                     name: true,
                     email: true,
+                    avatarUrl: true,
                     isActive: true,
                     createdAt: true,
                     updatedAt: true,
