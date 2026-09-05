@@ -106,50 +106,7 @@ Para guardar las imágenes de perfil, PDFs y documentos sin recargar la base de 
     + anon / public key: eyJhbGciOiJKV1QiLC... (Clave pública)
     + service_role key: eyJhbGciOiJKV1QiLC... (Clave privada para el backend - ¡mantener secreta!).
 
-### 💻 PARTE 2: Configuración del Entorno de Base de Datos Local (Desarrollo)
-Para trabajar de manera fluida en tu máquina local sin depender de internet ni afectar la base de datos en Supabase, configuraremos un PostgreSQL local.
-
-#### Opción A (Recomendada): Usando Docker Compose
-Si tienes Docker instalado en tu equipo, esta es la forma más limpia:
-1. Creamos un archivo docker-compose.yml en la raíz de nuestro proyecto backend (lo crearemos formalmente más adelante):
-```yml
-services:
-  postgres_dev:
-    image: postgres:15-alpine
-    container_name: local_starter_postgres
-    restart: always
-    environment:
-      POSTGRES_USER: dev_user
-      POSTGRES_PASSWORD: dev_password
-      POSTGRES_DB: local_starter_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  minio:
-    image: minio/minio:RELEASE.2024-01-18T22-51-28Z
-    container_name: local_starter_minio
-    restart: always
-    ports:
-      - "9000:9000"   # Puerto de la API S3
-      - "9001:9001"   # Consola Web
-    environment:
-      MINIO_ROOT_USER: minio_admin
-      MINIO_ROOT_PASSWORD: minio_password123
-    volumes:
-      - minio_data:/data
-    command: server /data --console-address ":9001"
-
-volumes:
-  postgres_data:
-  minio_data:
-```
-
-#### Opción B: PostgreSQL Instalado Nativo (Solo para BD)
-Si no usas Docker, puedes instalar PostgreSQL directamente en tu sistema operativo (PostgresApp en macOS, Installer en Windows/Linux) y crear una base de datos local llamada `local_starter_db`.
-
-### 🔑 PARTE 3: Matriz de Variables de Entorno (.env)
+### 🔑 PARTE 2: Matriz de Variables de Entorno (.env)
 A continuación se documenta el esquema del archivo .env que utilizará nuestro Backend para alternar fácilmente entre la BD Local y Supabase mediante simples comentarios:
 ```env
 # ==========================================
@@ -643,6 +600,191 @@ Esta sección detalla el proceso para estructurar la API REST en Node.js, config
         -H "Authorization: Bearer TU_TOKEN_JWT_DE_PRODUCCION" \
         -F "avatar=@/home/bazop/projects/cvpetrix2022/public/img/autor.png"
     ```
+
+## Dockerización
+### Dockerización del backend
+1. Configurar el backend para Docker:
+    + Crea un archivo `.dockerignore` en la raíz del backend para no arrastrar archivos innecesarios al contenedor:
+        ```dockerignore title="backend/.dockerignore"
+        Plaintext
+        node_modules
+        npm-debug.log
+        .env
+        .git
+        .gitignore
+        README.md
+        dist        
+        ```
+2. Crear el Dockerfile del Backend
+    + Crea este archivo optimizado para Node.js (usando la versión actual LTS) y preparado para Prisma ORM:
+        ```Dockerfile title="backend/Dockerfile"
+        # 1. Imagen base oficial de Node.js en Alpine para ligereza y seguridad
+        FROM node:20-alpine AS base
+
+        WORKDIR /usr/src/app
+
+        # Instalar dependencias del sistema necesarias para Prisma / OpenSSL en Alpine
+        RUN apk add --no-cache openssl
+
+        # 2. Copiar archivos de gestión de paquetes
+        COPY package*.json ./
+        COPY prisma ./prisma/
+
+        # 3. Instalación de dependencias de desarrollo y generación del cliente de Prisma
+        RUN npm ci
+        RUN npx prisma generate
+
+        # 4. Copiar el resto del código fuente del proyecto
+        COPY . .
+
+        # Expone el puerto donde corre Express
+        EXPOSE 4000
+
+        # Comando por defecto para desarrollo (se sobreescribirá con docker-compose en dev)
+        CMD ["npm", "run", "dev"]  
+        ```
+
+### Dockerización del frontend
+1. `.dockerignore del Frontend`: Crea el archivo para evitar copiar carpetas locales compiladas o innecesarias al contenedor:
+    ```dockerignore title="frontend/.dockerignore"
+    node_modules
+    dist
+    .git
+    .gitignore
+    README.md
+    ```
+2. Dockerfile del Frontend: Para Vite + Vue 3 en desarrollo, la clave está en exponer la aplicación en 0.0.0.0 para que la red interna de Docker pueda redirigir las peticiones a tu navegador host:
+    ```Dockerfile title="frontend/Dockerfile"
+    FROM node:20-alpine
+
+    WORKDIR /usr/src/app
+
+    COPY package*.json ./
+
+    RUN npm ci
+
+    COPY . .
+
+    EXPOSE 5173
+
+    # Vite requiere host 0.0.0.0 para ser accesible fuera del contenedor
+    CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+    ```
+
+
+### Orquestación de contenedores
+1. Crea el archivo de orquestación `docker-compose.yml` (en la raíz de la solución o directorio principal):
+```yml title="docker-compose.yml"
+services:
+  # Base de datos PostgreSQL
+  postgres_dev:
+    image: postgres:15-alpine
+    container_name: local_starter_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: dev_user
+      POSTGRES_PASSWORD: dev_password
+      POSTGRES_DB: local_starter_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev_user -d local_starter_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # MinIO (Servidor S3 Local)
+  minio:
+    image: minio/minio:RELEASE.2024-01-18T22-51-28Z
+    container_name: local_starter_minio
+    restart: always
+    ports:
+      - "9000:9000"   # Puerto de la API S3
+      - "9001:9001"   # Consola Web
+    environment:
+      MINIO_ROOT_USER: minio_admin
+      MINIO_ROOT_PASSWORD: minio_password123
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+
+  # Backend Express API
+  backend:
+    build:
+      context: ./familytree2026-backend
+      dockerfile: Dockerfile
+    container_name: familytree_backend
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=development
+      - PORT=4000
+    env_file:
+      - ./familytree2026-backend/.env
+    volumes:
+      - ./familytree2026-backend:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      postgres_dev:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    command: npm run dev
+
+  # Frontend Vue 3 + Vite
+  frontend:
+    build:
+      context: ./familytree2026-frontend
+      dockerfile: Dockerfile
+    container_name: familytree_frontend
+    restart: always
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:4000/api/v1
+    volumes:
+      - ./familytree2026-frontend:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  minio_data:
+```
+2. Ajuste de Variables de Entorno en el Backend (`.env`): Dado que el backend ahora corre dentro de su propio contenedor en la red interna de Docker, debes actualizar las referencias de localhost en el `.env` del backend:
+    ```env
+    # En lugar de localhost:5432, usamos el nombre del servicio postgres_dev
+    DATABASE_URL="postgresql://dev_user:dev_password@postgres_dev:5432/local_starter_db?schema=public"
+
+    # En lugar de localhost:9000 para MinIO interno
+    AWS_ENDPOINT="http://minio:9000"
+    ```
+
+### Comandos de interes
+```bash
+# Levantar solo un servicio, por ejemplo el backend o el frontend
+docker compose up -d --build backend
+docker compose up -d --build frontend
+
+# Levantar todos los servicios
+docker compose up -d --build
+
+# Ver los logs en tiempo real del backend y el frontend
+docker compose logs -f backend
+docker compose logs -f frontend
+
+# Ejecutar migraciones o comandos de Prisma dentro del contenedor
+docker compose exec backend npx prisma migrate dev
+
+# Estado de los contenedores
+docker compose ps
+```
+
+
 
 ## Perfil de usuarios
 1. Controlador de Perfil (`src/controllers/profile.controller.js`):
@@ -1521,6 +1663,10 @@ Esta fase cubre la construcción del cliente SPA dentro de la carpeta `familytre
     + En caso de error, ejecutar:
     ```bash
     npm install --legacy-peer-deps
+    ```
++ Corregir las versiones en tu entorno local (evitar `--legacy-peer-deps`)
+    ```bash
+    npm install eslint-plugin-oxlint@latest oxlint@latest --save-dev
     ```
 
 ### Paso 2: Instalación de Dependencias Adicionales y Tailwind CSS v4
@@ -6296,44 +6442,10 @@ git remote add origin https://github.com/TU_USUARIO/starter-backend.git
 git remote add origin git@github.com:TU_USUARIO/starter-backend.git
 
 
-## ---
-Querido primo, la verdad es que me dejaste reflexionando mucho sobre lo que me contaste, y voy a intentar explicarte lo que yo hago sin entrar en aguas profundas.
-Lo que yo hago es crear herramientas y programas a medida para que los negocios ahorren tiempo, automaticen su trabajo diario y vendan más por internet.
-Olvídate de nombres raros de programación o tecnología; a ningún cliente le importa cómo está hecho algo por dentro, solo les importa el problema que les resuelvo.
-Para que te hagas una idea de lo que podemos ofrecer, aquí van tres ejemplos claros de lo que construyo:
-- Sistemas de gestión a medida: Si un negocio (un taller, una clínica, una veterinaria, una tienda...) lleva sus citas o sus clientes en papeles o en un Excel caótico, yo les creo un programa propio donde lo tienen todo organizado, ven sus ganancias y controlan su agenda sin volverse locos.
-- Automatización de tareas repetitivas: Si en una empresa pierden dos horas al día copiando datos a mano, haciendo facturas una a una o mandando correos, yo creo un sistema que hace todo eso solo en un segundo y sin errores.
-- Plataformas interactivas para clientes: Webs con zona privada donde los clientes pueden registrarse, pagar suscripciones, reservar citas o descargar documentos a cualquier hora.
-💡 La gran diferencia con los maricones del diseño web es que un diseñador web normal solo hace una página bonita que sirve como "folleto digital" (texto y fotos). Lo que yo hago es construir el motor del negocio: sistemas donde hay usuarios, bases de datos, cobros, firmas digitales y procesos automáticos.
-
-Ahora que tal si te nombro Gerente de *Asesoramiento Legal* y *Superintendente de Captación de Clientes* sin tener que dejar tu trabajo, en definitiva, solo deberás brindarme asesoramiento legal y conseguir clientes, y quedaramos por ejemplo algo así, luego de descontar impuestos y toda esa mariquera:
-- Desarrollo Tecnológico (Yo): 50% - 55%
-- Ventas y Parte Legal (Tu): 25% - 30%
-- Caja de Reserva / Equipamiento: 15% - 20%
-
-🔍 *¿Cómo saber si alguien puede ser nuestro cliente?*
-Dueños de negocios que se quejan de cosas como:
-- Es que pierdo muchísimo tiempo con el papeleo o la gestión.
-- Se me olvidan citas o pierdo clientes por no atender a tiempo.
-- Me gustaría que los clientes pudieran reservar o comprar desde la web sin tener que llamarme.
-
-
-
-
-
-
-
-
-Ejemplo de forma de presentarlo a una empresa:
-*Soluciones Digitales y Software a Medida para Negocios*
-Transformo la manera en que las empresas operan, ayudándolas a ahorrar tiempo, reducir costes y escalar sus ventas mediante el diseño de herramientas digitales adaptadas al 100% a sus necesidades reales.
-
-*¿Qué puedo hacer por tu negocio?*
-- Sistemas de gestión interna: Creación de paneles de control, CRMs y programas a medida para organizar clientes, citas, inventario o facturación en un solo lugar.
-- Automatización de procesos: Conexión de herramientas y tareas repetitivas para eliminar el trabajo manual, los errores humanos y la pérdida de tiempo operativa.
-- Portales y plataformas para clientes: Desarrollo de espacios web interactivos con zonas privadas, sistemas de reserva online y pasarelas de pago integradas.
-
-*¿Por qué apostar por un desarrollo a medida?*
-- Adaptación total: El software se diseña en función de cómo trabaja tu empresa, evitando que tengas que adaptar tu flujo de trabajo a un programa genérico.
-- Eficiencia operativa: Liberación de horas de trabajo diario que tu equipo podrá dedicar a lo que realmente aporta valor al negocio.
-- Un activo propio: La plataforma es completamente de tu propiedad, eliminando la dependencia de licencias de terceros o cuotas mensuales excesivas.
+## Pendientes
++ [ ] Refactorización de rutas y controladores en el backend.
++ [ ] CRUD avatars en User Admin.
++ [ ] Login con redes sociales.
++ [x] Dockerización.
++ [ ] Solicitar autenticación de email.
++ [ ] Adecuar la aplicación para que sea mas general, por ejemplo cambiar familytree2026-backend por backend, adaptar la vista del home, etc.
